@@ -1,9 +1,14 @@
 {
   "name": "fleet-tracker",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
-  "workspaces": ["packages/*", "apps/*"],
-  "engines": { "node": ">=20" },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "npm run build -w @fleet-tracker/shared && concurrently -n shared,server,web -c gray,green,cyan \"npm run dev -w @fleet-tracker/shared\" \"npm run dev -w @fleet-tracker/server\" \"npm run dev -w @fleet-tracker/web\"",
     "build": "npm run build -w @fleet-tracker/shared && npm run build -w @fleet-tracker/server && npm run build -w @fleet-tracker/web",
