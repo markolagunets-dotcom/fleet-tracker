@@ -2,7 +2,7 @@
 # Debian rather than Alpine: better-sqlite3 ships glibc prebuilds and needs no toolchain.
 
 # ── builder ───────────────────────────────────────────────────────────────────
-FROM node:24-slim AS builder
+FROM node:26-slim AS builder
 WORKDIR /repo
 
 COPY package.json package-lock.json tsconfig.base.json ./
@@ -31,7 +31,7 @@ CMD ["sh", "-c", "npx prisma migrate deploy && chown -R node:node /data"]
 # ── production dependencies ───────────────────────────────────────────────────
 # A clean --omit=dev install rather than `npm prune`, which leaves other
 # workspaces' packages behind in a monorepo.
-FROM node:24-slim AS prod-deps
+FROM node:26-slim AS prod-deps
 WORKDIR /repo
 
 COPY package.json package-lock.json ./
@@ -62,7 +62,7 @@ COPY --from=builder /repo/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /repo/node_modules/@prisma/client ./node_modules/@prisma/client
 
 # ── runner ────────────────────────────────────────────────────────────────────
-FROM node:24-slim AS runner
+FROM node:26-slim AS runner
 WORKDIR /repo
 ENV NODE_ENV=production
 ENV DATABASE_URL="file:/data/fleet-tracker.db"
