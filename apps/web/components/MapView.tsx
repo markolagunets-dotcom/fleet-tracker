@@ -18,6 +18,8 @@ interface MapViewProps {
   selectedDroneId: string;
   follow: boolean;
   onSelect(droneId: string): void;
+  /** Called when the operator pans by hand, so follow mode can step aside. */
+  onFollowDisengage(): void;
 }
 
 interface DroneLayers {
@@ -57,7 +59,7 @@ function iconSvg(marker: L.Marker): SVGElement | null {
 }
 
 export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(
-  { missions, history, selectedDroneId, follow, onSelect },
+  { missions, history, selectedDroneId, follow, onSelect, onFollowDisengage },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -65,11 +67,20 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(
   const layersRef = useRef<Map<string, DroneLayers>>(new Map());
   const flightLayerRef = useRef<L.Polyline | null>(null);
 
-  // Read inside pushPoints without re-subscribing the socket.
+  // Read inside pushPoints without re-subscribing the socket. Written in an
+  // effect rather than during render, and declared before the effects that read
+  // them so they are current by the time those run.
   const selectedRef = useRef(selectedDroneId);
-  selectedRef.current = selectedDroneId;
   const followRef = useRef(follow);
-  followRef.current = follow;
+  const onSelectRef = useRef(onSelect);
+  const onFollowDisengageRef = useRef(onFollowDisengage);
+
+  useEffect(() => {
+    selectedRef.current = selectedDroneId;
+    followRef.current = follow;
+    onSelectRef.current = onSelect;
+    onFollowDisengageRef.current = onFollowDisengage;
+  });
 
   useEffect(() => {
     if (mapRef.current || !containerRef.current) {
@@ -90,14 +101,26 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(
       maxZoom: 19,
     }).addTo(map);
 
+    // A manual drag wins over follow mode; otherwise panTo drags the view back
+    // five times a second and the map fights the operator.
+    map.on('dragstart', () => {
+      if (followRef.current) {
+        onFollowDisengageRef.current();
+      }
+    });
+
     mapRef.current = map;
     // Captured now: by cleanup time the ref may point somewhere else.
     const layers = layersRef.current;
+    const flightLayer = flightLayerRef;
 
     return () => {
       map.remove();
       mapRef.current = null;
       layers.clear();
+      // The polyline died with the map; leaving the ref set would make the next
+      // showFlight() call remove() a layer that belongs to no map.
+      flightLayer.current = null;
     };
   }, []);
 
@@ -123,7 +146,22 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(
   // Seed the flown track from REST, then let the socket extend it.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !history || missions.length === 0) {
+    if (!map) {
+      return;
+    }
+
+    // Reconcile removals first: a drone that left the mission set keeps its
+    // marker and polyline on the map forever otherwise.
+    const active = new Set(missions.map((mission) => mission.droneId));
+    for (const [droneId, layers] of layersRef.current) {
+      if (!active.has(droneId)) {
+        layers.marker.remove();
+        layers.track.remove();
+        layersRef.current.delete(droneId);
+      }
+    }
+
+    if (!history || missions.length === 0) {
       return;
     }
 
@@ -138,7 +176,7 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(
         continue;
       }
 
-      const selected = mission.droneId === selectedDroneId;
+      const selected = mission.droneId === selectedRef.current;
       const track = L.polyline(latLngs, {
         color: mission.colour,
         weight: 3,
@@ -150,7 +188,7 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(
         { icon: arrowIcon(mission.colour, selected) },
       )
         .addTo(map)
-        .on('click', () => onSelect(mission.droneId));
+        .on('click', () => onSelectRef.current(mission.droneId));
 
       const svg = iconSvg(marker);
       if (svg && last) {
@@ -165,7 +203,10 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(
         selected,
       });
     }
-  }, [history, missions, onSelect, selectedDroneId]);
+    // Deliberately not depending on selectedDroneId or onSelect: both are only
+    // read when a layer is first created, and re-running this effect would reset
+    // every track to the stale REST seed.
+  }, [history, missions]);
 
   useImperativeHandle(
     ref,
@@ -245,5 +286,14 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(
     [],
   );
 
-  return <div ref={containerRef} className="h-full w-full" />;
+  return (
+    <div
+      ref={containerRef}
+      // Leaflet owns the keyboard inside this box (pan, zoom, marker focus), so
+      // screen readers should hand keystrokes through rather than intercept them.
+      role="application"
+      aria-label="Fleet map — live drone positions and flown tracks"
+      className="h-full w-full"
+    />
+  );
 });

@@ -1,11 +1,12 @@
 'use client';
 
-import type { ServerMessage, Telemetry } from '@fleet-tracker/shared';
+import type { Telemetry } from '@fleet-tracker/shared';
+import { parseServerMessage } from '@fleet-tracker/shared';
 import {
   PANEL_INTERVAL_MS,
   WS_RECONNECT_MAX_MS,
   WS_RECONNECT_MIN_MS,
-} from '@fleet-tracker/shared';
+} from '@/lib/constants';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { WS_URL } from '@/lib/config';
@@ -51,11 +52,11 @@ export function useTelemetryStream(onPoints: (points: Telemetry[]) => void): Con
       };
 
       socket.onmessage = (event: MessageEvent<string>) => {
-        let message: ServerMessage;
-        try {
-          message = JSON.parse(event.data) as ServerMessage;
-        } catch {
-          console.warn('[fleet-tracker] dropped malformed frame');
+        // Validated, not cast: a renamed or missing field must drop the frame
+        // rather than reach the imperative renderer.
+        const message = parseServerMessage(event.data);
+        if (!message) {
+          console.warn('[fleet-tracker] dropped an invalid frame');
           return;
         }
 

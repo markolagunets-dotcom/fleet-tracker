@@ -24,10 +24,13 @@ export function StatusPanel({
   telemetry,
   connection,
   trackPoints,
+  historyError = false,
 }: {
   telemetry: Telemetry | undefined;
   connection: ConnectionState;
   trackPoints: number;
+  /** The seeded track history failed to load, so the point count is not real. */
+  historyError?: boolean;
 }): React.JSX.Element {
   const badge = CONNECTION_LABEL[connection];
 
@@ -35,11 +38,23 @@ export function StatusPanel({
     <Panel
       title="Status"
       header={
-        <span className={`rounded-full px-2 py-0.5 text-[11px] ${badge.className}`}>
+        // Announced on change: the socket state is the one thing an operator must
+        // not have to be looking at the badge to notice.
+        <span
+          aria-live="polite"
+          className={`rounded-full px-2 py-0.5 text-[11px] ${badge.className}`}
+        >
+          <span className="sr-only">Telemetry link </span>
           {badge.text}
         </span>
       }
     >
+      {historyError && (
+        <p className="mb-2 rounded-md bg-rose-500/10 p-2 text-xs text-rose-300">
+          Track history unavailable — the map shows live points only.
+        </p>
+      )}
+
       {telemetry ? (
         <div className="grid grid-cols-2 gap-2">
           <Metric label="Altitude" value={`${telemetry.alt.toFixed(1)} m`} />
@@ -47,7 +62,7 @@ export function StatusPanel({
           <Metric label="Speed" value={`${telemetry.speed.toFixed(1)} m/s`} />
           <Metric label="Heading" value={`${telemetry.heading.toFixed(0)}°`} />
           <Metric label="State" value={telemetry.status} />
-          <Metric label="Track" value={`${trackPoints} pts`} />
+          <Metric label="Track" value={historyError ? '—' : `${trackPoints} pts`} />
         </div>
       ) : (
         <p className="text-sm text-slate-400">Waiting for the first frame…</p>

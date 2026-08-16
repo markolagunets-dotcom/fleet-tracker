@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 
 interface PanelProps {
   title: string;
@@ -24,6 +24,7 @@ export function Panel({
   defaultOpen = true,
 }: PanelProps): React.JSX.Element {
   const [open, setOpen] = useState(defaultOpen);
+  const bodyId = useId();
 
   return (
     <section className="shrink-0 rounded-lg border border-slate-800 bg-slate-900/60">
@@ -32,6 +33,7 @@ export function Panel({
           type="button"
           onClick={() => setOpen((value) => !value)}
           aria-expanded={open}
+          aria-controls={bodyId}
           className="flex flex-1 items-center gap-2 text-left text-sm font-semibold text-slate-200 hover:text-white"
         >
           <svg
@@ -55,7 +57,10 @@ export function Panel({
         {header}
       </div>
 
-      {open && <div className="px-4 pb-4">{children}</div>}
+      {/* Hidden rather than unmounted so `aria-controls` always resolves to a real element. */}
+      <div id={bodyId} hidden={!open} className="px-4 pb-4">
+        {children}
+      </div>
     </section>
   );
 }

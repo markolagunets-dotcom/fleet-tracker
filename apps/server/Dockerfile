@@ -74,6 +74,10 @@ COPY --from=builder /repo/packages/shared/package.json ./packages/shared/package
 COPY --from=builder /repo/apps/server/dist ./apps/server/dist
 COPY --from=builder /repo/apps/server/package.json ./apps/server/package.json
 
+# The image owns its data directory: a named volume mounted here inherits this
+# ownership, so the runner works even when deployed without the migrate service.
+RUN mkdir -p /data && chown node:node /data
+
 USER node
 WORKDIR /repo/apps/server
 EXPOSE 3001

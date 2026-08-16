@@ -7,10 +7,16 @@ export function FlightHistory({
   flights,
   selectedFlightId,
   onSelect,
+  isError = false,
+  trackError = false,
 }: {
   flights: FlightSummaryDto[];
   selectedFlightId: string | null;
   onSelect(flightId: string | null): void;
+  /** The flight list query failed — do not render "no flights yet" instead. */
+  isError?: boolean;
+  /** The selected flight's full track failed to load, so nothing was drawn. */
+  trackError?: boolean;
 }): React.JSX.Element {
   return (
     <Panel
@@ -27,12 +33,22 @@ export function FlightHistory({
             </button>
           )}
           <span className="rounded-full bg-slate-800 px-2 py-0.5 font-mono text-[11px] text-slate-400">
-            {flights.length}
+            {isError ? '—' : flights.length}
           </span>
         </div>
       }
     >
-      {flights.length === 0 ? (
+      {trackError && (
+        <p className="mb-2 rounded-md bg-rose-500/10 p-2 text-xs text-rose-300">
+          The selected flight&apos;s track could not be loaded.
+        </p>
+      )}
+
+      {isError ? (
+        <p className="rounded-md bg-rose-500/10 p-2 text-xs text-rose-300">
+          Flight log unavailable — the completed flights could not be loaded.
+        </p>
+      ) : flights.length === 0 ? (
         <p className="text-sm text-slate-400">
           No completed flights yet — one is recorded when a drone lands or is reset.
         </p>
@@ -45,6 +61,7 @@ export function FlightHistory({
               <button
                 type="button"
                 onClick={() => onSelect(flight.id === selectedFlightId ? null : flight.id)}
+                aria-pressed={flight.id === selectedFlightId}
                 className={`w-full rounded-md px-2 py-1.5 text-left text-xs ${
                   flight.id === selectedFlightId
                     ? 'bg-slate-700/70 text-slate-100'

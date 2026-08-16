@@ -16,6 +16,7 @@ import {
   useTrackHistory,
 } from '@/hooks/useQueries';
 import { useTelemetryStream } from '@/hooks/useTelemetryStream';
+import { API_URL } from '@/lib/config';
 
 // Leaflet touches `window` at import time, so the map can never be server-rendered.
 const MapView = dynamic(() => import('./MapView').then((module) => module.MapView), {
@@ -42,6 +43,8 @@ export function Console(): React.JSX.Element {
   }, []);
 
   const connection = useTelemetryStream(pushPoints);
+
+  const disengageFollow = useCallback(() => setFollow(false), []);
 
   const selectFlight = useCallback((flightId: string | null) => {
     setSelectedFlightId(flightId);
@@ -87,29 +90,34 @@ export function Console(): React.JSX.Element {
             selectedDroneId={selectedDroneId}
             follow={follow}
             onSelect={setSelectedDroneId}
+            onFollowDisengage={disengageFollow}
           />
         </div>
 
         <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-l border-slate-800 p-3">
           {missions.isError && (
             <p className="rounded-md bg-rose-500/10 p-3 text-xs text-rose-300">
-              Cannot reach the API at {process.env.NEXT_PUBLIC_API_URL ?? 'localhost:3001'}.
+              Cannot reach the API at {API_URL}.
             </p>
           )}
           <FleetList
             drones={drones.data ?? []}
             selectedDroneId={selectedDroneId}
             onSelect={setSelectedDroneId}
+            isError={drones.isError}
           />
           <StatusPanel
             telemetry={selectedTelemetry}
             connection={connection}
             trackPoints={trackPoints}
+            historyError={history.isError}
           />
           <FlightHistory
             flights={flights.data ?? []}
             selectedFlightId={selectedFlightId}
             onSelect={selectFlight}
+            isError={flights.isError}
+            trackError={flight.isError}
           />
         </aside>
       </div>

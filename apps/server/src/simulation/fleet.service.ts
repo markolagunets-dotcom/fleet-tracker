@@ -1,10 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  NotFoundException,
-  OnModuleDestroy,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import type {
   DroneCommand,
   DroneSummary,
@@ -13,54 +7,54 @@ import type {
   Telemetry,
   TrackHistory,
 } from '@fleet-tracker/shared';
-import {
-  MISSIONS,
-  TICK_INTERVAL_MS,
-  TRACK_POINT_LIMIT,
-  TRACK_TRIM_BLOCK,
-  findMission,
-} from '@fleet-tracker/shared';
 import { Observable, Subject } from 'rxjs';
-import { FlightsRepository } from '../flights/flights.repository';
+import { Clock } from '../common/clock';
+import { MISSIONS, findMission } from '../missions/missions.data';
 import { DroneSimulator } from './drone-simulator';
-import { summariseTrack } from './flight-summary';
+import { UnknownDroneError } from './errors';
+import { FlightArchiver } from './flight-archiver';
+import { TICK_INTERVAL_MS } from './simulation.constants';
+import { TrackStore } from './track-store';
 
+/**
+ * Coordinates the fleet: owns the simulators, applies operator commands, and turns
+ * each simulation step into an outbound message.
+ *
+ * Buffering lives in TrackStore, persistence in FlightArchiver, and the interval in
+ * TelemetryScheduler — this class only decides what happens, not when or where it
+ * is stored.
+ */
 @Injectable()
-export class FleetService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(FleetService.name);
+export class FleetService {
   private readonly messages = new Subject<ServerMessage>();
   private readonly simulators = new Map<string, DroneSimulator>();
-  private readonly tracks = new Map<string, Telemetry[]>();
-  private timer?: NodeJS.Timeout;
 
   readonly stream$: Observable<ServerMessage> = this.messages.asObservable();
 
-  constructor(private readonly flights: FlightsRepository) {
-    for (const mission of MISSIONS) {
-      this.spawn(mission.droneId);
+  constructor(
+    private readonly tracks: TrackStore,
+    private readonly archiver: FlightArchiver,
+    private readonly clock: Clock,
+  ) {}
+
+  /** Called by the scheduler; spawns the fleet on first use. */
+  start(): void {
+    if (this.simulators.size === 0) {
+      for (const mission of MISSIONS) {
+        this.spawn(mission.droneId);
+      }
     }
   }
 
-  onModuleInit(): void {
-    this.timer = setInterval(() => this.tickOnce(), TICK_INTERVAL_MS);
-  }
-
-  onModuleDestroy(): void {
-    if (this.timer) {
-      clearInterval(this.timer);
-    }
-    this.messages.complete();
-  }
-
-  /** One simulation step for the whole fleet. Public so tests can drive it without timers. */
+  /** One simulation step for the whole fleet. Public so tests can drive it. */
   tickOnce(): void {
-    const ts = Date.now();
+    const ts = this.clock.now();
     const points: Telemetry[] = [];
 
     for (const [droneId, simulator] of this.simulators) {
       const point = simulator.tick(TICK_INTERVAL_MS, ts);
       points.push(point);
-      this.appendToTrack(droneId, point);
+      this.tracks.append(droneId, point);
 
       if (point.status === 'LANDED') {
         this.endFlight(droneId, 'BATTERY_DEPLETED');
@@ -75,11 +69,11 @@ export class FleetService implements OnModuleInit, OnModuleDestroy {
   }
 
   history(): TrackHistory {
-    return Object.fromEntries(this.tracks);
+    return this.tracks.all();
   }
 
   latest(): Telemetry[] {
-    const ts = Date.now();
+    const ts = this.clock.now();
     return [...this.simulators.values()].map((simulator) => simulator.snapshot(ts));
   }
 
@@ -104,52 +98,40 @@ export class FleetService implements OnModuleInit, OnModuleDestroy {
     return this.summaryOf(droneId);
   }
 
+  /** Closes the stream and lets pending writes finish. */
+  async shutdown(): Promise<void> {
+    await this.archiver.drain();
+    this.messages.complete();
+  }
+
   /**
    * Archives the current track and puts a fresh drone in the air immediately, so the
    * fleet keeps flying while the write completes off the tick loop.
    */
   private endFlight(droneId: string, reason: FlightEndReason): void {
-    const track = this.tracks.get(droneId) ?? [];
-    const summary = summariseTrack(droneId, track, reason);
-
+    const track = this.tracks.take(droneId);
     this.spawn(droneId);
 
-    if (track.length === 0) {
-      return;
-    }
-
-    this.flights
-      .record(summary, track)
-      .then(({ id }) => this.messages.next({ type: 'flightEnded', droneId, flightId: id }))
-      .catch((error: unknown) =>
-        this.logger.error(`failed to persist flight for ${droneId}`, error),
-      );
+    void this.archiver.archiveFlight(droneId, track, reason).then((archived) => {
+      if (archived) {
+        this.messages.next({ type: 'flightEnded', ...archived });
+      }
+    });
   }
 
   private spawn(droneId: string): void {
     const mission = findMission(droneId);
     if (!mission) {
-      throw new NotFoundException(`unknown drone: ${droneId}`);
+      throw new UnknownDroneError(droneId);
     }
-    this.simulators.set(droneId, new DroneSimulator(mission, Date.now()));
-    this.tracks.set(droneId, []);
-  }
-
-  private appendToTrack(droneId: string, point: Telemetry): void {
-    const track = this.tracks.get(droneId);
-    if (!track) {
-      return;
-    }
-    track.push(point);
-    if (track.length > TRACK_POINT_LIMIT + TRACK_TRIM_BLOCK) {
-      track.splice(0, track.length - TRACK_POINT_LIMIT);
-    }
+    this.simulators.set(droneId, new DroneSimulator(mission, this.clock.now()));
+    this.tracks.reset(droneId);
   }
 
   private require(droneId: string): DroneSimulator {
     const simulator = this.simulators.get(droneId);
     if (!simulator) {
-      throw new NotFoundException(`unknown drone: ${droneId}`);
+      throw new UnknownDroneError(droneId);
     }
     return simulator;
   }

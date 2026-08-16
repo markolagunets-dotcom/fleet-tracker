@@ -18,7 +18,11 @@ export const queryKeys = {
   history: ['telemetry', 'history'] as const,
   latest: ['telemetry', 'latest'] as const,
   flights: ['flights'] as const,
-  flight: (id: string) => ['flights', id] as const,
+  /**
+   * Its own namespace on purpose: nesting a full track under `flights` meant
+   * invalidating the summary list also evicted every cached track.
+   */
+  flight: (id: string) => ['flight', id] as const,
 };
 
 /** Missions never change while the server is up, so they are cached indefinitely. */
