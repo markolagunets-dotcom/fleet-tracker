@@ -1,0 +1,132 @@
+name: Deploy
+
+# STUB — this workflow does not deploy anything yet.
+#
+# It exists so the shape of the pipeline is settled: which images it consumes,
+# which environment it targets, what has to be in place before it can run. Every
+# step that would touch a real environment is inert and says so. Nothing here
+# reports success for work it did not do.
+#
+# To make it real:
+#   1. Pick a host for the server (it needs WebSocket support — Vercel does not
+#      provide it; Koyeb's free tier or a Fly.io machine both do).
+#   2. Add the provider token as a repository secret and reference it below.
+#   3. Replace the "not wired up" step in each job with the provider's action or
+#      CLI call, and delete the guard that stops the job.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        default: staging
+        options:
+          - staging
+          - production
+      image_tag:
+        description: 'Image tag to deploy (defaults to the latest commit SHA)'
+        required: false
+        type: string
+  release:
+    types: [published]
+
+concurrency:
+  group: deploy-${{ github.event.inputs.environment || 'production' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  resolve:
+    name: Resolve image tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.value }}
+      environment: ${{ steps.tag.outputs.environment }}
+
+    steps:
+      - id: tag
+        env:
+          INPUT_TAG: ${{ inputs.image_tag }}
+          INPUT_ENV: ${{ inputs.environment }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${INPUT_TAG}" ]; then
+            VALUE="${INPUT_TAG}"
+          elif [ -n "${RELEASE_TAG}" ]; then
+            VALUE="${RELEASE_TAG#v}"
+          else
+            VALUE="sha-${GITHUB_SHA}"
+          fi
+
+          ENVIRONMENT="${INPUT_ENV:-production}"
+
+          {
+            echo "value=$VALUE"
+            echo "environment=$ENVIRONMENT"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Would deploy tag '$VALUE' to '$ENVIRONMENT'."
+
+  deploy-server:
+    name: Deploy server (stub)
+    needs: resolve
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Report what a real run would do
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ github.repository }}/server:${{ needs.resolve.outputs.tag }}
+          ENVIRONMENT: ${{ needs.resolve.outputs.environment }}
+        run: |
+          {
+            echo "## Deploy — server (stub)"
+            echo ""
+            echo "| | |"
+            echo "| :-- | :-- |"
+            echo "| Image | \`${IMAGE}\` |"
+            echo "| Environment | ${ENVIRONMENT} |"
+            echo "| Status | **not wired up** |"
+            echo ""
+            echo "Needs: a host that supports WebSocket (Koyeb free tier or a Fly.io"
+            echo "machine), a provider token in repository secrets, and a persistent"
+            echo "volume for the SQLite file — or a move to Postgres."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "::notice title=Deploy is a stub::server was NOT deployed. See .github/workflows/deploy.yml."
+
+  deploy-web:
+    name: Deploy web (stub)
+    needs: resolve
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Report what a real run would do
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ github.repository }}/web:${{ needs.resolve.outputs.tag }}
+          ENVIRONMENT: ${{ needs.resolve.outputs.environment }}
+        run: |
+          {
+            echo "## Deploy — web (stub)"
+            echo ""
+            echo "| | |"
+            echo "| :-- | :-- |"
+            echo "| Image | \`${IMAGE}\` |"
+            echo "| Environment | ${ENVIRONMENT} |"
+            echo "| Status | **not wired up** |"
+            echo ""
+            echo "Note: NEXT_PUBLIC_API_URL and NEXT_PUBLIC_WS_URL are inlined when the"
+            echo "image is built, so a per-environment deploy needs either a rebuild with"
+            echo "the right values or a runtime-fetched config endpoint."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "::notice title=Deploy is a stub::web was NOT deployed. See .github/workflows/deploy.yml."
