@@ -1,4 +1,4 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication, ShutdownSignal, ValidationPipe } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
 import { WsAdapter } from '@nestjs/platform-ws';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -11,7 +11,11 @@ import { DomainExceptionFilter } from './common/domain-exception.filter';
  * e2e suite instead of silently diverging from production.
  */
 export function configureApp(app: INestApplication, corsOrigin: string): void {
-  app.enableShutdownHooks();
+  // Only the signals that actually mean "stop". The no-argument form subscribes to
+  // eleven, including SIGHUP and crash signals like SIGSEGV and SIGABRT — which both
+  // turns a closed terminal into a shutdown and tries to run graceful teardown while
+  // the process is already faulting.
+  app.enableShutdownHooks([ShutdownSignal.SIGTERM, ShutdownSignal.SIGINT]);
   app.setGlobalPrefix('api');
   app.enableCors({ origin: corsOrigin });
   app.useWebSocketAdapter(new WsAdapter(app));

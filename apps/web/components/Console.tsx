@@ -3,6 +3,7 @@
 import type { Telemetry } from '@fleet-tracker/shared';
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { PANEL_INTERVAL_MS } from '@/lib/constants';
 import type { MapHandle } from './MapView';
 import { FleetList } from './FleetList';
 import { FlightHistory } from './FlightHistory';
@@ -30,6 +31,13 @@ export function Console(): React.JSX.Element {
   const [follow, setFollow] = useState(true);
 
   const mapRef = useRef<MapHandle>(null);
+  const [trackPoints, setTrackPoints] = useState(0);
+  const lastCountPublish = useRef(0);
+  const selectedDroneIdRef = useRef(selectedDroneId);
+
+  useEffect(() => {
+    selectedDroneIdRef.current = selectedDroneId;
+  }, [selectedDroneId]);
 
   const missions = useMissions();
   const drones = useDrones();
@@ -38,8 +46,18 @@ export function Console(): React.JSX.Element {
   const flights = useFlights();
   const flight = useFlight(selectedFlightId);
 
+  // The live count lives in Leaflet, not in the query cache — the REST seed freezes
+  // at connect time. Sampled here rather than read during render, and throttled to
+  // the same cadence as the status panel so it costs no extra re-renders.
   const pushPoints = useCallback((points: Telemetry[]) => {
     mapRef.current?.pushPoints(points);
+
+    const now = Date.now();
+    if (now - lastCountPublish.current < PANEL_INTERVAL_MS) {
+      return;
+    }
+    lastCountPublish.current = now;
+    setTrackPoints(mapRef.current?.trackLength(selectedDroneIdRef.current) ?? 0);
   }, []);
 
   const connection = useTelemetryStream(pushPoints);
@@ -61,7 +79,7 @@ export function Console(): React.JSX.Element {
   }, [flight.data, selectedFlightId]);
 
   const selectedTelemetry = latest.data?.find((point) => point.droneId === selectedDroneId);
-  const trackPoints = history.data?.[selectedDroneId]?.length ?? 0;
+
 
   return (
     <main className="flex h-dvh flex-col">

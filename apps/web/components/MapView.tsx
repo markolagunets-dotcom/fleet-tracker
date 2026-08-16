@@ -10,6 +10,8 @@ export interface MapHandle {
   /** Called at 5 Hz from the socket. Deliberately outside React's render cycle. */
   pushPoints(points: Telemetry[]): void;
   showFlight(flight: FlightDetailDto | null): void;
+  /** Live point count. The REST seed goes stale within a second of connecting. */
+  trackLength(droneId: string): number;
 }
 
 interface MapViewProps {
@@ -259,6 +261,11 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(
             map.panTo(position, { animate: false });
           }
         }
+      },
+
+      trackLength(droneId: string): number {
+        const layers = layersRef.current.get(droneId);
+        return layers ? (layers.track.getLatLngs() as L.LatLng[]).length : 0;
       },
 
       showFlight(flight: FlightDetailDto | null): void {

@@ -100,6 +100,9 @@ jobs:
 
   docker:
     name: Docker images
+    # On main the publish workflow already builds these before pushing them, so
+    # building here too doubles the minutes for no extra signal.
+    if: github.ref != 'refs/heads/main' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 

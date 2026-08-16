@@ -88,10 +88,19 @@ single `tick` message. At 5 Hz that is 5 frames per second rather than 15, and t
 client always renders a coherent fleet state instead of three interleaved partial
 updates.
 
-**A shared contract package.** `@fleet-tracker/shared` holds the wire types and
-simulation constants, and is consumed by both apps as an ordinary workspace
-dependency. Change a field on the server and the frontend typecheck fails in CI,
-which is the whole point of putting them in one place.
+**A shared contract package, kept narrow.** `@fleet-tracker/shared` holds the wire
+types, a `parseServerMessage()` guard and the two constants both ends must agree on —
+and nothing else. The flight model stays on the server, missions are served over
+`/api/missions` rather than duplicated, and client pacing lives in the web app.
+Change a field on the server and the frontend typecheck fails in CI, which is the
+whole point of putting the contract in one place; putting anything wider there would
+just ship simulation internals to the browser.
+
+**Dependencies point inward.** The simulation depends on a `FlightArchive` port, not
+on the Prisma repository that implements it, and raises domain errors that a filter
+maps to HTTP at the edge. Nothing in the core imports a database or a transport type.
+Responsibilities are split accordingly: `TrackStore` buffers, `FlightArchiver`
+persists, `TelemetryScheduler` owns the interval, `FleetService` coordinates.
 
 **The simulation core is pure.** `geo.ts`, `drone-simulator.ts` and
 `flight-summary.ts` have no Nest, no I/O and no clock access — every time value is a
@@ -105,7 +114,8 @@ I/O bound.
 ## Testing
 
 ```bash
-npm test           # 33 unit tests: geodesy, flight model, summary aggregation, fleet loop
+npm test           # 53 unit tests: geodesy, flight model, fleet coordination,
+                   # the wire contract, and the environment schema
 npm run test:e2e   # 14 e2e tests: REST endpoints and persistence, via supertest
 ```
 

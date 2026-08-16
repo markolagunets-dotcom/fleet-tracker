@@ -39,7 +39,7 @@ under a high-frequency data stream, and a typed contract shared across the stack
 ```
                        apps/server (NestJS 11)
    ┌──────────────────────────────────────────────────────────┐
-   │  FleetService ── 3 × SimulatorService  (5 Hz tick loop)   │
+   │  TelemetryScheduler ─► FleetService ─► 3 × DroneSimulator │
    │        │                                                 │
    │        ├──► TelemetryGateway ──── WebSocket ──────────────┼──►  live deltas
    │        │                                                  │
@@ -73,7 +73,14 @@ speaks HTTP. Splitting them keeps each transport doing what it is good at.
 
 ## 3. Shared contract (`packages/shared`)
 
-A single workspace package is the source of truth for anything crossing the wire.
+A single workspace package is the source of truth for anything crossing the wire —
+and deliberately nothing else. It holds the message types, a `parseServerMessage()`
+guard, and the two track-buffer constants both ends must agree on. The flight model
+(speed, drain, altitude envelope) belongs to the server, the mission definitions live
+behind `/api/missions` so there is one source of truth rather than two, and client
+pacing lives in the web app. Anything wider would ship simulation internals to the
+browser.
+
 The package builds to `dist/` as CommonJS with declarations, so both apps consume it
 as an ordinary workspace dependency — no path aliases and no bundler special-casing.
 Changing a field on the server breaks the web typecheck, and CI catches it.
@@ -127,10 +134,18 @@ Flight model:
 - Below `LOW_BATTERY_THRESHOLD` (15%) the status becomes `RTB` and the drone heads for
   the first waypoint. At 0% it becomes `LANDED`.
 
-`FleetService` owns three `SimulatorService` instances with distinct missions and
-drives them from a single `setInterval` at `TICK_HZ`. When a drone lands, the service
-writes the completed flight through `FlightsRepository`, emits `flightEnded`, and
+`FleetService` coordinates three `DroneSimulator` instances with distinct missions,
+and each collaborator owns exactly one thing: `TrackStore` the bounded per-drone
+buffers, `FlightArchiver` the summarise-and-persist path, `TelemetryScheduler` the
+`setInterval` at `TICK_HZ` and its shutdown. When a drone lands, the fleet hands the
+finished track to the archiver, emits `flightEnded` once the write resolves, and
 restarts that drone on a fresh battery.
+
+The simulation depends on a `FlightArchive` port rather than on `FlightsRepository`,
+with the Prisma-backed implementation bound to it in `FlightsModule`, so the core
+never imports the database. It raises `UnknownDroneError`, a plain domain error that
+`DomainExceptionFilter` maps to 404 at the edge — no HTTP type reaches the core. Time
+arrives through an injected `Clock`, which is what makes the tick loop testable.
 
 Deriving heading and distance from real bearing math rather than a canned path is
 deliberate: it is the part of the simulator worth testing, and the tests read as
@@ -254,6 +269,19 @@ client that was away does not draw a gap as a straight line across the map.
 
 ---
 
+## 5b. Configuration
+
+Environment variables are validated once at boot by a schema in `config/env.config.ts`
+and injected through Nest's `ConfigService`; nothing reads `process.env` directly.
+Development defaults keep `npm run dev` zero-setup, but under `NODE_ENV=production`
+the absence of `CORS_ORIGIN` or `DATABASE_URL` is a boot failure rather than a silent
+fallback to localhost and an ephemeral database.
+
+`configureApp()` holds everything that shapes request handling — prefix, CORS, pipes,
+the WebSocket adapter, the domain exception filter, shutdown hooks. Production and
+both e2e suites call it, so a pipe added here is actually exercised by the tests
+instead of quietly diverging from what runs.
+
 ## 6. Error handling and limits
 
 - Inbound frames go through `parseServerMessage()` from the shared package, which
@@ -276,11 +304,15 @@ client that was away does not draw a gap as a straight line across the map.
 
 - **Unit (Jest).** Bearing and distance math against known coordinate pairs; waypoint
   advance and wraparound; monotonic battery drain; `RTB` at 15%; `LANDED` at 0%;
-  flight summary aggregation (distance, max altitude).
+  flight summary aggregation; fleet coordination against a hand-driven clock and a
+  stubbed archive port; and the environment schema, including its refusal to start a
+  production process on development defaults.
 - **E2E (supertest).** Every REST endpoint: shape, status codes, validation rejection
   of unknown and malformed command payloads.
-- **Contract.** A test asserting the serialised `ServerMessage` union matches the
-  shared types, so the wire format cannot drift from the package silently.
+- **Contract.** Real simulator output is serialised, parsed back through the same
+  `parseServerMessage()` the browser uses, and compared; malformed JSON, unknown
+  message types, missing fields and unrecognised statuses are all asserted to be
+  rejected. If either end drifts, this fails rather than the browser.
 
 The frontend is not unit tested. At this size the rendering path is faster and more
 honestly verified in a browser, and the README says so rather than implying coverage
@@ -296,7 +328,10 @@ fleet-tracker/
 │   ├── server/
 │   │   ├── prisma/schema.prisma
 │   │   └── src/
-│   │       ├── simulation/     SimulatorService, FleetService, geo utilities
+│   │       ├── common/        Clock, domain exception filter
+│   │       ├── config/        validated environment schema
+│   │       ├── simulation/     FleetService, TrackStore, FlightArchiver,
+│   │       │                   TelemetryScheduler, DroneSimulator, geo
 │   │       ├── telemetry/      TelemetryGateway, TelemetryController
 │   │       ├── flights/        FlightsController, FlightsRepository
 │   │       └── missions/       MissionsController
@@ -305,7 +340,7 @@ fleet-tracker/
 │       ├── components/         MapView, StatusPanel, FleetList, FlightHistory
 │       ├── hooks/              useTelemetryStream, useMissions, useFlights
 │       └── lib/                api client, ws client
-├── packages/shared/            types, message contract, constants, missions
+├── packages/shared/            wire types, frame parser, track constants
 ├── .github/workflows/ci.yml
 ├── docker-compose.yml
 └── docs/design.md
