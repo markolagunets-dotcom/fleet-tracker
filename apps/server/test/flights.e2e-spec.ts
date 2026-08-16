@@ -1,4 +1,5 @@
 import { INestApplication } from '@nestjs/common';
+import { WsAdapter } from '@nestjs/platform-ws';
 import { Test } from '@nestjs/testing';
 import type { Telemetry } from '@fleet-tracker/shared';
 import { AppModule } from '../src/app.module';
@@ -25,6 +26,7 @@ describe('FlightsRepository (e2e)', () => {
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
+    app.useWebSocketAdapter(new WsAdapter(app));
     await app.init();
     repository = app.get(FlightsRepository);
     prisma = app.get(PrismaService);
