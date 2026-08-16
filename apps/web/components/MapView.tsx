@@ -163,18 +163,27 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(
       }
     }
 
-    if (!history || missions.length === 0) {
+    if (missions.length === 0) {
       return;
     }
 
     for (const mission of missions) {
-      const points = history[mission.droneId] ?? [];
+      // An empty seed is fine — the socket fills the track in. Waiting for history
+      // would mean a failed or slow /telemetry/history leaves the map with no layers
+      // at all, silently dropping every live frame.
+      const points = history?.[mission.droneId] ?? [];
       const latLngs = points.map((point) => [point.lat, point.lon] as L.LatLngTuple);
       const last = points[points.length - 1];
       const existing = layersRef.current.get(mission.droneId);
 
       if (existing) {
-        existing.track.setLatLngs(latLngs);
+        // History is refetched on every reconnect and every flightEnded. Reseed only
+        // when the server knows more than the map does — after a gap — otherwise the
+        // snapshot would discard points the socket has delivered since it was taken.
+        const drawn = (existing.track.getLatLngs() as L.LatLng[]).length;
+        if (latLngs.length > drawn) {
+          existing.track.setLatLngs(latLngs);
+        }
         continue;
       }
 
@@ -209,6 +218,24 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(
     // read when a layer is first created, and re-running this effect would reset
     // every track to the stale REST seed.
   }, [history, missions]);
+
+  // Highlight follows the selection immediately; without this the marker only
+  // restyles on the next frame, so with the socket down a click does nothing visible.
+  useEffect(() => {
+    for (const [droneId, layers] of layersRef.current) {
+      const selected = droneId === selectedDroneId;
+      if (selected === layers.selected) {
+        continue;
+      }
+      layers.selected = selected;
+      const heading = layers.svg?.style.transform ?? '';
+      layers.marker.setIcon(arrowIcon(layers.colour, selected));
+      layers.svg = iconSvg(layers.marker);
+      if (layers.svg) {
+        layers.svg.style.transform = heading;
+      }
+    }
+  }, [selectedDroneId, history, missions]);
 
   useImperativeHandle(
     ref,

@@ -1,7 +1,7 @@
 # FleetTracker — Design Document
 
 **Date:** 2026-08-16
-**Status:** Approved, ready for implementation
+**Status:** Implemented
 
 A real-time drone fleet tracking dashboard. A simulated fleet of three drones flies
 predefined missions; telemetry is streamed to the browser over WebSocket and rendered
@@ -105,8 +105,8 @@ export type ServerMessage =
   | { type: 'flightEnded'; droneId: string; flightId: string };
 ```
 
-`TICK_HZ`, `PANEL_HZ`, `TRACK_POINT_LIMIT`, `LOW_BATTERY_THRESHOLD` and the mission
-definitions also live here, so client and server cannot disagree about them.
+`TRACK_POINT_LIMIT`, `TRACK_TRIM_BLOCK` and the protocol version live here, because
+both ends must agree on them. Everything else moved to whichever side owns it.
 
 ### Batching
 
@@ -120,7 +120,7 @@ rather than three interleaved partial updates.
 
 ### Simulation
 
-`SimulatorService` owns one drone. It is a plain injectable with a single
+`DroneSimulator` owns one drone. It is a plain injectable with a single
 `tick(dtMs): Telemetry` method and no knowledge of WebSockets, HTTP, or persistence —
 which is what makes the flight model unit-testable in isolation.
 
@@ -259,9 +259,11 @@ the user pans manually, so the map does not fight the operator.
 
 ### Connection handling
 
-`NEXT_PUBLIC_WS_URL` and `NEXT_PUBLIC_API_URL` configure the endpoints, so promoting
-the app from localhost to a deployment is an environment change rather than a code
-change.
+`NEXT_PUBLIC_WS_URL` and `NEXT_PUBLIC_API_URL` configure the endpoints. Next inlines
+`NEXT_PUBLIC_*` at build time, so they are build arguments rather than runtime
+configuration: promoting the app to a new environment means rebuilding the web image
+with the right values, not just restarting it with a new variable. A runtime-fetched
+config endpoint would remove that constraint; it is not worth the indirection here.
 
 Reconnection uses exponential backoff from 1 s to 10 s. The UI shows `connected`,
 `reconnecting`, or `offline`. On reconnect the track history query is refetched, so a
@@ -376,7 +378,8 @@ npm workspaces with `concurrently`: `npm run dev` at the root starts both apps.
   a one-shot `migrate` stage that holds the Prisma CLI, `prod-deps`, and a `runner`
   that carries neither the CLI nor devDependencies — `@prisma/client` declares both
   the CLI and TypeScript as `peerOptional`, so a plain `--omit=dev` still ships them.
-  Dropping that tree took the runtime image from 737 MB to 434 MB. A
+  Dropping that tree halves node_modules, 423 MB to 211 MB, which takes the runtime
+  image from 737 MB to 434 MB. A
   `docker-compose.yml` brings
   the whole stack up with one command.
 

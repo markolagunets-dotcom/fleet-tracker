@@ -62,12 +62,24 @@ export function Console(): React.JSX.Element {
 
   const connection = useTelemetryStream(pushPoints);
 
+  // Sampled here as well as in pushPoints: that callback only fires while frames
+  // arrive, so on its own the counter shows the previous drone's total after a
+  // switch, and freezes at the last value whenever the socket drops.
+  useEffect(() => {
+    setTrackPoints(mapRef.current?.trackLength(selectedDroneId) ?? 0);
+  }, [selectedDroneId, connection]);
+
   const disengageFollow = useCallback(() => setFollow(false), []);
 
   const selectFlight = useCallback((flightId: string | null) => {
     setSelectedFlightId(flightId);
-    if (flightId === null) {
-      mapRef.current?.showFlight(null);
+    // Clear immediately: otherwise the previous flight stays drawn while the next
+    // one loads, and stays forever if that load fails.
+    mapRef.current?.showFlight(null);
+    // fitBounds on an archived track is pointless while follow drags the view back
+    // to a live drone five times a second.
+    if (flightId !== null) {
+      setFollow(false);
     }
   }, []);
 

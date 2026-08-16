@@ -43,6 +43,8 @@ flowchart LR
 
 ```bash
 npm install
+cp apps/server/.env.example apps/server/.env
+cp apps/web/.env.local.example apps/web/.env.local
 npm run build -w @fleet-tracker/shared
 cd apps/server && npx prisma migrate dev --name init && cd ../..
 npm run dev
@@ -120,9 +122,9 @@ I/O bound.
 ## Testing
 
 ```bash
-npm test           # 53 unit tests: geodesy, flight model, fleet coordination,
+npm test           # 55 unit tests: geodesy, flight model, fleet coordination,
                    # the wire contract, and the environment schema
-npm run test:e2e   # 14 e2e tests: REST endpoints and persistence, via supertest
+npm run test:e2e   # 15 e2e tests: REST endpoints and persistence, via supertest
 ```
 
 The frontend has no unit tests. At this size the rendering path is verified faster
@@ -141,6 +143,6 @@ worse than saying so.
 ```
 apps/server      NestJS: simulation, REST API, WebSocket gateway, Prisma
 apps/web         Next.js: App Router console, React Query, Leaflet
-packages/shared  wire contract, constants, mission definitions
+packages/shared  wire contract, frame parser, protocol version
 docs/design.md   the design this was built from
 ```

@@ -25,6 +25,11 @@ COPY --from=builder /repo/apps/web/.next/standalone ./
 COPY --from=builder /repo/apps/web/.next/static ./apps/web/.next/static
 COPY --from=builder /repo/apps/web/public ./apps/web/public
 
+# Next's standalone server binds HOSTNAME; leaving it unset risks a loopback bind
+# inside the container, where the published port then goes nowhere.
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
+
 USER node
 
 EXPOSE 3000

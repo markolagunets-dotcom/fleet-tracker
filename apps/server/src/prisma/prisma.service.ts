@@ -1,4 +1,4 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
 import { PrismaClient } from '@prisma/client';
@@ -9,7 +9,7 @@ import type { EnvConfig } from '../config/env.config';
  * options throws at runtime rather than falling back to a bundled engine.
  */
 @Injectable()
-export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+export class PrismaService extends PrismaClient implements OnModuleInit, OnApplicationShutdown {
   constructor(config: ConfigService<EnvConfig, true>) {
     super({
       adapter: new PrismaBetterSqlite3({ url: config.get('DATABASE_URL', { infer: true }) }),
@@ -20,7 +20,11 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.$connect();
   }
 
-  async onModuleDestroy(): Promise<void> {
+  /**
+   * The last shutdown phase, so the simulation has already drained its pending
+   * writes. Disconnecting in onModuleDestroy — the first phase — would kill them.
+   */
+  async onApplicationShutdown(): Promise<void> {
     await this.$disconnect();
   }
 }

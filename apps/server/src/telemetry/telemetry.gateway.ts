@@ -41,9 +41,11 @@ export class TelemetryGateway
       PROTOCOL_VERSION_PARAM,
     );
 
-    if (requested !== null && Number(requested) !== PROTOCOL_VERSION) {
+    // A missing parameter is a client from before versioning existed — the exact
+    // case this gate is for — so it is treated as a mismatch, not waved through.
+    if (Number(requested) !== PROTOCOL_VERSION) {
       this.logger.warn(
-        `rejected client on protocol v${requested}, server speaks v${PROTOCOL_VERSION}`,
+        `rejected client on protocol v${requested ?? 'none'}, server speaks v${PROTOCOL_VERSION}`,
       );
       client.close(PROTOCOL_MISMATCH_CODE, `protocol v${PROTOCOL_VERSION} required`);
       return;
