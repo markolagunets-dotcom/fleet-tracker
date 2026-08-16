@@ -16,7 +16,10 @@ model Flight {
   endedReason String
   points      TrackPoint[]
 
+  // The composite index serves per-drone lookups; the flight log lists every drone
+  // ordered by endedAt, which a droneId-leading index cannot satisfy.
   @@index([droneId, endedAt])
+  @@index([endedAt])
 }
 
 model TrackPoint {

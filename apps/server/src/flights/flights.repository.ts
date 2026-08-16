@@ -8,6 +8,22 @@ import type {
 import type { FlightSummaryInput } from '../simulation/flight-summary';
 import { PrismaService } from '../prisma/prisma.service';
 
+export const FLIGHTS_PAGE_SIZE = 50;
+
+const END_REASONS: readonly FlightEndReason[] = ['BATTERY_DEPLETED', 'OPERATOR_RESET'];
+
+/**
+ * SQLite has no enums, so the column is a string. Validating on read beats casting:
+ * a row written by an older version or by hand surfaces here instead of reaching the
+ * client as a value its union says is impossible.
+ */
+function toEndReason(value: string, flightId: string): FlightEndReason {
+  if (!(END_REASONS as readonly string[]).includes(value)) {
+    throw new Error(`flight ${flightId} has an unknown endedReason: ${value}`);
+  }
+  return value as FlightEndReason;
+}
+
 @Injectable()
 export class FlightsRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -38,9 +54,11 @@ export class FlightsRepository {
     });
   }
 
-  async list(): Promise<FlightSummaryDto[]> {
+  /** Capped: the log grows for as long as the simulation runs. */
+  async list(limit = FLIGHTS_PAGE_SIZE): Promise<FlightSummaryDto[]> {
     const flights = await this.prisma.flight.findMany({
       orderBy: { endedAt: 'desc' },
+      take: Math.min(Math.max(limit, 1), FLIGHTS_PAGE_SIZE),
       include: { _count: { select: { points: true } } },
     });
 
@@ -51,7 +69,7 @@ export class FlightsRepository {
       endedAt: flight.endedAt.toISOString(),
       distanceM: flight.distanceM,
       maxAltM: flight.maxAltM,
-      endedReason: flight.endedReason as FlightEndReason,
+      endedReason: toEndReason(flight.endedReason, flight.id),
       pointCount: flight._count.points,
     }));
   }
@@ -73,7 +91,7 @@ export class FlightsRepository {
       endedAt: flight.endedAt.toISOString(),
       distanceM: flight.distanceM,
       maxAltM: flight.maxAltM,
-      endedReason: flight.endedReason as FlightEndReason,
+      endedReason: toEndReason(flight.endedReason, flight.id),
       pointCount: flight.points.length,
       points: flight.points.map((point) => ({
         ts: point.ts.getTime(),

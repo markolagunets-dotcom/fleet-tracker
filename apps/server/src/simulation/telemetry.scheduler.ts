@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { FleetService } from './fleet.service';
 import { TICK_INTERVAL_MS } from './simulation.constants';
 
@@ -9,7 +9,7 @@ import { TICK_INTERVAL_MS } from './simulation.constants';
  * and it gives shutdown a single place to stop the clock before draining writes.
  */
 @Injectable()
-export class TelemetryScheduler implements OnModuleInit, OnApplicationShutdown {
+export class TelemetryScheduler implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(TelemetryScheduler.name);
   private timer?: NodeJS.Timeout;
 
@@ -20,7 +20,15 @@ export class TelemetryScheduler implements OnModuleInit, OnApplicationShutdown {
     this.timer = setInterval(() => this.tick(), TICK_INTERVAL_MS);
   }
 
-  async onApplicationShutdown(): Promise<void> {
+  /**
+   * Runs in the first shutdown phase, on purpose.
+   *
+   * Nest's order is onModuleDestroy -> beforeApplicationShutdown ->
+   * onApplicationShutdown. Draining any later would hand pending writes to a Prisma
+   * client that has already disconnected, and the interval would keep producing
+   * flights against it. PrismaService disconnects in the last phase to match.
+   */
+  async onModuleDestroy(): Promise<void> {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = undefined;

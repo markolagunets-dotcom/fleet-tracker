@@ -1,7 +1,7 @@
 # FleetTracker — Design Document
 
 **Date:** 2026-08-16
-**Status:** Approved, ready for implementation
+**Status:** Implemented
 
 A real-time drone fleet tracking dashboard. A simulated fleet of three drones flies
 predefined missions; telemetry is streamed to the browser over WebSocket and rendered
@@ -39,7 +39,7 @@ under a high-frequency data stream, and a typed contract shared across the stack
 ```
                        apps/server (NestJS 11)
    ┌──────────────────────────────────────────────────────────┐
-   │  FleetService ── 3 × SimulatorService  (5 Hz tick loop)   │
+   │  TelemetryScheduler ─► FleetService ─► 3 × DroneSimulator │
    │        │                                                 │
    │        ├──► TelemetryGateway ──── WebSocket ──────────────┼──►  live deltas
    │        │                                                  │
@@ -73,7 +73,14 @@ speaks HTTP. Splitting them keeps each transport doing what it is good at.
 
 ## 3. Shared contract (`packages/shared`)
 
-A single workspace package is the source of truth for anything crossing the wire.
+A single workspace package is the source of truth for anything crossing the wire —
+and deliberately nothing else. It holds the message types, a `parseServerMessage()`
+guard, and the two track-buffer constants both ends must agree on. The flight model
+(speed, drain, altitude envelope) belongs to the server, the mission definitions live
+behind `/api/missions` so there is one source of truth rather than two, and client
+pacing lives in the web app. Anything wider would ship simulation internals to the
+browser.
+
 The package builds to `dist/` as CommonJS with declarations, so both apps consume it
 as an ordinary workspace dependency — no path aliases and no bundler special-casing.
 Changing a field on the server breaks the web typecheck, and CI catches it.
@@ -98,8 +105,8 @@ export type ServerMessage =
   | { type: 'flightEnded'; droneId: string; flightId: string };
 ```
 
-`TICK_HZ`, `PANEL_HZ`, `TRACK_POINT_LIMIT`, `LOW_BATTERY_THRESHOLD` and the mission
-definitions also live here, so client and server cannot disagree about them.
+`TRACK_POINT_LIMIT`, `TRACK_TRIM_BLOCK` and the protocol version live here, because
+both ends must agree on them. Everything else moved to whichever side owns it.
 
 ### Batching
 
@@ -113,7 +120,7 @@ rather than three interleaved partial updates.
 
 ### Simulation
 
-`SimulatorService` owns one drone. It is a plain injectable with a single
+`DroneSimulator` owns one drone. It is a plain injectable with a single
 `tick(dtMs): Telemetry` method and no knowledge of WebSockets, HTTP, or persistence —
 which is what makes the flight model unit-testable in isolation.
 
@@ -127,10 +134,18 @@ Flight model:
 - Below `LOW_BATTERY_THRESHOLD` (15%) the status becomes `RTB` and the drone heads for
   the first waypoint. At 0% it becomes `LANDED`.
 
-`FleetService` owns three `SimulatorService` instances with distinct missions and
-drives them from a single `setInterval` at `TICK_HZ`. When a drone lands, the service
-writes the completed flight through `FlightsRepository`, emits `flightEnded`, and
+`FleetService` coordinates three `DroneSimulator` instances with distinct missions,
+and each collaborator owns exactly one thing: `TrackStore` the bounded per-drone
+buffers, `FlightArchiver` the summarise-and-persist path, `TelemetryScheduler` the
+`setInterval` at `TICK_HZ` and its shutdown. When a drone lands, the fleet hands the
+finished track to the archiver, emits `flightEnded` once the write resolves, and
 restarts that drone on a fresh battery.
+
+The simulation depends on a `FlightArchive` port rather than on `FlightsRepository`,
+with the Prisma-backed implementation bound to it in `FlightsModule`, so the core
+never imports the database. It raises `UnknownDroneError`, a plain domain error that
+`DomainExceptionFilter` maps to 404 at the edge — no HTTP type reaches the core. Time
+arrives through an injected `Clock`, which is what makes the tick loop testable.
 
 Deriving heading and distance from real bearing math rather than a canned path is
 deliberate: it is the part of the simulator worth testing, and the tests read as
@@ -244,15 +259,46 @@ the user pans manually, so the map does not fight the operator.
 
 ### Connection handling
 
-`NEXT_PUBLIC_WS_URL` and `NEXT_PUBLIC_API_URL` configure the endpoints, so promoting
-the app from localhost to a deployment is an environment change rather than a code
-change.
+`NEXT_PUBLIC_WS_URL` and `NEXT_PUBLIC_API_URL` configure the endpoints. Next inlines
+`NEXT_PUBLIC_*` at build time, so they are build arguments rather than runtime
+configuration: promoting the app to a new environment means rebuilding the web image
+with the right values, not just restarting it with a new variable. A runtime-fetched
+config endpoint would remove that constraint; it is not worth the indirection here.
 
 Reconnection uses exponential backoff from 1 s to 10 s. The UI shows `connected`,
 `reconnecting`, or `offline`. On reconnect the track history query is refetched, so a
 client that was away does not draw a gap as a straight line across the map.
 
 ---
+
+## 5b. Configuration
+
+Environment variables are validated once at boot by a schema in `config/env.config.ts`
+and injected through Nest's `ConfigService`; nothing reads `process.env` directly.
+Development defaults keep `npm run dev` zero-setup, but under `NODE_ENV=production`
+the absence of `CORS_ORIGIN` or `DATABASE_URL` is a boot failure rather than a silent
+fallback to localhost and an ephemeral database.
+
+`configureApp()` holds everything that shapes request handling — prefix, CORS, pipes,
+the WebSocket adapter, the domain exception filter, shutdown hooks. Production and
+both e2e suites call it, so a pipe added here is actually exercised by the tests
+instead of quietly diverging from what runs.
+
+## 5c. Protocol versioning and observability
+
+`PROTOCOL_VERSION` lives in the shared package and rides along on the WebSocket
+handshake as a query parameter. The gateway closes a mismatched client with 1008
+"policy violation" and the client stops reconnecting and offers a reload, because
+retrying would only be refused again. This matters because the two images are
+published and deployed independently: without it, a tab left open across a release
+silently mis-renders a payload whose shape it no longer understands.
+
+Logging is structured through pino — JSON in production so it can be indexed,
+pretty-printed in development. Every request line carries a request id, method, path,
+status and duration; 4xx logs at `warn` and 5xx at `error`. Health probes are excluded
+because they fire every few seconds and say nothing when they pass. The gateway logs
+connections, disconnections and the live client count, which is the one number that
+explains an unexpected broadcast cost.
 
 ## 6. Error handling and limits
 
@@ -276,11 +322,15 @@ client that was away does not draw a gap as a straight line across the map.
 
 - **Unit (Jest).** Bearing and distance math against known coordinate pairs; waypoint
   advance and wraparound; monotonic battery drain; `RTB` at 15%; `LANDED` at 0%;
-  flight summary aggregation (distance, max altitude).
+  flight summary aggregation; fleet coordination against a hand-driven clock and a
+  stubbed archive port; and the environment schema, including its refusal to start a
+  production process on development defaults.
 - **E2E (supertest).** Every REST endpoint: shape, status codes, validation rejection
   of unknown and malformed command payloads.
-- **Contract.** A test asserting the serialised `ServerMessage` union matches the
-  shared types, so the wire format cannot drift from the package silently.
+- **Contract.** Real simulator output is serialised, parsed back through the same
+  `parseServerMessage()` the browser uses, and compared; malformed JSON, unknown
+  message types, missing fields and unrecognised statuses are all asserted to be
+  rejected. If either end drifts, this fails rather than the browser.
 
 The frontend is not unit tested. At this size the rendering path is faster and more
 honestly verified in a browser, and the README says so rather than implying coverage
@@ -296,7 +346,10 @@ fleet-tracker/
 │   ├── server/
 │   │   ├── prisma/schema.prisma
 │   │   └── src/
-│   │       ├── simulation/     SimulatorService, FleetService, geo utilities
+│   │       ├── common/        Clock, domain exception filter
+│   │       ├── config/        validated environment schema
+│   │       ├── simulation/     FleetService, TrackStore, FlightArchiver,
+│   │       │                   TelemetryScheduler, DroneSimulator, geo
 │   │       ├── telemetry/      TelemetryGateway, TelemetryController
 │   │       ├── flights/        FlightsController, FlightsRepository
 │   │       └── missions/       MissionsController
@@ -305,7 +358,7 @@ fleet-tracker/
 │       ├── components/         MapView, StatusPanel, FleetList, FlightHistory
 │       ├── hooks/              useTelemetryStream, useMissions, useFlights
 │       └── lib/                api client, ws client
-├── packages/shared/            types, message contract, constants, missions
+├── packages/shared/            wire types, frame parser, track constants
 ├── .github/workflows/ci.yml
 ├── docker-compose.yml
 └── docs/design.md
@@ -325,7 +378,8 @@ npm workspaces with `concurrently`: `npm run dev` at the root starts both apps.
   a one-shot `migrate` stage that holds the Prisma CLI, `prod-deps`, and a `runner`
   that carries neither the CLI nor devDependencies — `@prisma/client` declares both
   the CLI and TypeScript as `peerOptional`, so a plain `--omit=dev` still ships them.
-  Dropping that tree took the runtime image from 737 MB to 434 MB. A
+  Dropping that tree halves node_modules, 423 MB to 211 MB, which takes the runtime
+  image from 737 MB to 434 MB. A
   `docker-compose.yml` brings
   the whole stack up with one command.
 

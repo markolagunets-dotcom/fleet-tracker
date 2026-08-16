@@ -9,6 +9,7 @@ const CONNECTION_LABEL: Record<ConnectionState, { text: string; className: strin
   connected: { text: 'connected', className: 'bg-emerald-500/20 text-emerald-300' },
   reconnecting: { text: 'reconnecting', className: 'bg-amber-500/20 text-amber-300' },
   offline: { text: 'offline', className: 'bg-rose-500/20 text-rose-300' },
+  outdated: { text: 'outdated', className: 'bg-violet-500/20 text-violet-300' },
 };
 
 function Metric({ label, value }: { label: string; value: string }): React.JSX.Element {

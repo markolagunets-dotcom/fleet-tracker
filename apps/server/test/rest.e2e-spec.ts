@@ -25,6 +25,11 @@ describe('REST API (e2e)', () => {
     expect(typeof response.body.uptimeSeconds).toBe('number');
   });
 
+  it('GET /api/health/ready reports the database reachable', async () => {
+    const response = await request(app.getHttpServer()).get('/api/health/ready').expect(200);
+    expect(response.body).toEqual({ status: 'ok', database: 'reachable' });
+  });
+
   it('GET /api/missions returns three routes with waypoints', async () => {
     const response = await request(app.getHttpServer()).get('/api/missions').expect(200);
     expect(response.body).toHaveLength(3);

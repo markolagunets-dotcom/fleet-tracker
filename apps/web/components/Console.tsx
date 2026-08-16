@@ -3,6 +3,7 @@
 import type { Telemetry } from '@fleet-tracker/shared';
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { PANEL_INTERVAL_MS } from '@/lib/constants';
 import type { MapHandle } from './MapView';
 import { FleetList } from './FleetList';
 import { FlightHistory } from './FlightHistory';
@@ -30,6 +31,13 @@ export function Console(): React.JSX.Element {
   const [follow, setFollow] = useState(true);
 
   const mapRef = useRef<MapHandle>(null);
+  const [trackPoints, setTrackPoints] = useState(0);
+  const lastCountPublish = useRef(0);
+  const selectedDroneIdRef = useRef(selectedDroneId);
+
+  useEffect(() => {
+    selectedDroneIdRef.current = selectedDroneId;
+  }, [selectedDroneId]);
 
   const missions = useMissions();
   const drones = useDrones();
@@ -38,18 +46,40 @@ export function Console(): React.JSX.Element {
   const flights = useFlights();
   const flight = useFlight(selectedFlightId);
 
+  // The live count lives in Leaflet, not in the query cache — the REST seed freezes
+  // at connect time. Sampled here rather than read during render, and throttled to
+  // the same cadence as the status panel so it costs no extra re-renders.
   const pushPoints = useCallback((points: Telemetry[]) => {
     mapRef.current?.pushPoints(points);
+
+    const now = Date.now();
+    if (now - lastCountPublish.current < PANEL_INTERVAL_MS) {
+      return;
+    }
+    lastCountPublish.current = now;
+    setTrackPoints(mapRef.current?.trackLength(selectedDroneIdRef.current) ?? 0);
   }, []);
 
   const connection = useTelemetryStream(pushPoints);
+
+  // Sampled here as well as in pushPoints: that callback only fires while frames
+  // arrive, so on its own the counter shows the previous drone's total after a
+  // switch, and freezes at the last value whenever the socket drops.
+  useEffect(() => {
+    setTrackPoints(mapRef.current?.trackLength(selectedDroneId) ?? 0);
+  }, [selectedDroneId, connection]);
 
   const disengageFollow = useCallback(() => setFollow(false), []);
 
   const selectFlight = useCallback((flightId: string | null) => {
     setSelectedFlightId(flightId);
-    if (flightId === null) {
-      mapRef.current?.showFlight(null);
+    // Clear immediately: otherwise the previous flight stays drawn while the next
+    // one loads, and stays forever if that load fails.
+    mapRef.current?.showFlight(null);
+    // fitBounds on an archived track is pointless while follow drags the view back
+    // to a live drone five times a second.
+    if (flightId !== null) {
+      setFollow(false);
     }
   }, []);
 
@@ -61,7 +91,7 @@ export function Console(): React.JSX.Element {
   }, [flight.data, selectedFlightId]);
 
   const selectedTelemetry = latest.data?.find((point) => point.droneId === selectedDroneId);
-  const trackPoints = history.data?.[selectedDroneId]?.length ?? 0;
+
 
   return (
     <main className="flex h-dvh flex-col">
@@ -80,6 +110,22 @@ export function Console(): React.JSX.Element {
           Follow selected drone
         </label>
       </header>
+
+      {connection === 'outdated' && (
+        <div className="flex items-center justify-between gap-3 border-b border-violet-500/40 bg-violet-500/10 px-5 py-2 text-xs text-violet-200">
+          <span>
+            The server is running a newer version of the telemetry protocol. This tab is
+            out of date and will not receive updates.
+          </span>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="shrink-0 rounded bg-violet-500/20 px-3 py-1 font-medium hover:bg-violet-500/30"
+          >
+            Reload
+          </button>
+        </div>
+      )}
 
       <div className="flex min-h-0 flex-1">
         <div className="min-w-0 flex-1">

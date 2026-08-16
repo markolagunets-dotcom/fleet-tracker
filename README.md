@@ -43,6 +43,8 @@ flowchart LR
 
 ```bash
 npm install
+cp apps/server/.env.example apps/server/.env
+cp apps/web/.env.local.example apps/web/.env.local
 npm run build -w @fleet-tracker/shared
 cd apps/server && npx prisma migrate dev --name init && cd ../..
 npm run dev
@@ -88,10 +90,25 @@ single `tick` message. At 5 Hz that is 5 frames per second rather than 15, and t
 client always renders a coherent fleet state instead of three interleaved partial
 updates.
 
-**A shared contract package.** `@fleet-tracker/shared` holds the wire types and
-simulation constants, and is consumed by both apps as an ordinary workspace
-dependency. Change a field on the server and the frontend typecheck fails in CI,
-which is the whole point of putting them in one place.
+**A shared contract package, kept narrow.** `@fleet-tracker/shared` holds the wire
+types, a `parseServerMessage()` guard and the two constants both ends must agree on —
+and nothing else. The flight model stays on the server, missions are served over
+`/api/missions` rather than duplicated, and client pacing lives in the web app.
+Change a field on the server and the frontend typecheck fails in CI, which is the
+whole point of putting the contract in one place; putting anything wider there would
+just ship simulation internals to the browser.
+
+**Dependencies point inward.** The simulation depends on a `FlightArchive` port, not
+on the Prisma repository that implements it, and raises domain errors that a filter
+maps to HTTP at the edge. Nothing in the core imports a database or a transport type.
+Responsibilities are split accordingly: `TrackStore` buffers, `FlightArchiver`
+persists, `TelemetryScheduler` owns the interval, `FleetService` coordinates.
+
+**The wire format is versioned.** The server and the console ship as separate images,
+so a tab open across a release can be a version behind. The client sends
+`PROTOCOL_VERSION` on the handshake, the gateway refuses a mismatch with close code
+1008, and the console offers a reload instead of reconnecting into the same refusal.
+A silent mis-render is a far worse failure than an explicit one.
 
 **The simulation core is pure.** `geo.ts`, `drone-simulator.ts` and
 `flight-summary.ts` have no Nest, no I/O and no clock access — every time value is a
@@ -105,8 +122,9 @@ I/O bound.
 ## Testing
 
 ```bash
-npm test           # 33 unit tests: geodesy, flight model, summary aggregation, fleet loop
-npm run test:e2e   # 14 e2e tests: REST endpoints and persistence, via supertest
+npm test           # 55 unit tests: geodesy, flight model, fleet coordination,
+                   # the wire contract, and the environment schema
+npm run test:e2e   # 15 e2e tests: REST endpoints and persistence, via supertest
 ```
 
 The frontend has no unit tests. At this size the rendering path is verified faster
@@ -125,6 +143,6 @@ worse than saying so.
 ```
 apps/server      NestJS: simulation, REST API, WebSocket gateway, Prisma
 apps/web         Next.js: App Router console, React Query, Leaflet
-packages/shared  wire contract, constants, mission definitions
+packages/shared  wire contract, frame parser, protocol version
 docs/design.md   the design this was built from
 ```
