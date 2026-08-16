@@ -68,11 +68,13 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(
     }).addTo(map);
 
     mapRef.current = map;
+    // Captured now: by cleanup time the ref may point somewhere else.
+    const layers = layersRef.current;
 
     return () => {
       map.remove();
       mapRef.current = null;
-      layersRef.current.clear();
+      layers.clear();
     };
   }, []);
 
