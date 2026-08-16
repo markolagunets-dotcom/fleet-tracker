@@ -1,0 +1,19 @@
+{
+  "name": "fleet-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": ["packages/*", "apps/*"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "dev": "npm run build -w @fleet-tracker/shared && concurrently -n shared,server,web -c gray,green,cyan \"npm run dev -w @fleet-tracker/shared\" \"npm run dev -w @fleet-tracker/server\" \"npm run dev -w @fleet-tracker/web\"",
+    "build": "npm run build -w @fleet-tracker/shared && npm run build -w @fleet-tracker/server && npm run build -w @fleet-tracker/web",
+    "test": "npm run test -w @fleet-tracker/server",
+    "test:e2e": "npm run test:e2e -w @fleet-tracker/server",
+    "lint": "npm run lint -w @fleet-tracker/server && npm run lint -w @fleet-tracker/web",
+    "typecheck": "npm run typecheck -w @fleet-tracker/shared && npm run typecheck -w @fleet-tracker/server && npm run typecheck -w @fleet-tracker/web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.9.3"
+  }
+}
