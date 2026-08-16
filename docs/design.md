@@ -1,4 +1,4 @@
-# PatMap — Design Document
+# FleetTracker — Design Document
 
 **Date:** 2026-08-16
 **Status:** Approved, ready for implementation
@@ -74,8 +74,9 @@ speaks HTTP. Splitting them keeps each transport doing what it is good at.
 ## 3. Shared contract (`packages/shared`)
 
 A single workspace package is the source of truth for anything crossing the wire.
-Next consumes it via `transpilePackages`; Nest via tsconfig path mapping. Changing a
-field on the server breaks the web typecheck, and CI catches it.
+The package builds to `dist/` as CommonJS with declarations, so both apps consume it
+as an ordinary workspace dependency — no path aliases and no bundler special-casing.
+Changing a field on the server breaks the web typecheck, and CI catches it.
 
 ```ts
 export type DroneStatus = 'FLYING' | 'RTB' | 'LANDED' | 'PAUSED';
@@ -279,7 +280,7 @@ that does not exist.
 ## 8. Repository layout
 
 ```
-patmap/
+fleet-tracker/
 ├── apps/
 │   ├── server/
 │   │   ├── prisma/schema.prisma
