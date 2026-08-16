@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM node:24-slim AS builder
+FROM node:26-slim AS builder
 WORKDIR /repo
 
 COPY package.json package-lock.json tsconfig.base.json ./
@@ -17,7 +17,7 @@ ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
 
 RUN npm run build -w @fleet-tracker/shared && npm run build -w @fleet-tracker/web
 
-FROM node:24-slim AS runner
+FROM node:26-slim AS runner
 WORKDIR /repo
 ENV NODE_ENV=production
 
