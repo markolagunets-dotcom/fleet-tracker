@@ -1,0 +1,33 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Flight {
+  id          String       @id @default(cuid())
+  droneId     String
+  startedAt   DateTime
+  endedAt     DateTime
+  distanceM   Float
+  maxAltM     Float
+  endedReason String
+  points      TrackPoint[]
+
+  @@index([droneId, endedAt])
+}
+
+model TrackPoint {
+  id       Int      @id @default(autoincrement())
+  flightId String
+  flight   Flight   @relation(fields: [flightId], references: [id], onDelete: Cascade)
+  ts       DateTime
+  lat      Float
+  lon      Float
+  alt      Float
+  battery  Float
+
+  @@index([flightId, ts])
+}
