@@ -2,6 +2,7 @@
 
 import type { Telemetry } from '@fleet-tracker/shared';
 import type { ConnectionState } from '@/hooks/useTelemetryStream';
+import { Panel } from './Panel';
 
 const CONNECTION_LABEL: Record<ConnectionState, { text: string; className: string }> = {
   connecting: { text: 'connecting', className: 'bg-amber-500/20 text-amber-300' },
@@ -31,14 +32,14 @@ export function StatusPanel({
   const badge = CONNECTION_LABEL[connection];
 
   return (
-    <section className="rounded-lg border border-slate-800 bg-slate-900/60 p-4">
-      <header className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-200">Status</h2>
+    <Panel
+      title="Status"
+      header={
         <span className={`rounded-full px-2 py-0.5 text-[11px] ${badge.className}`}>
           {badge.text}
         </span>
-      </header>
-
+      }
+    >
       {telemetry ? (
         <div className="grid grid-cols-2 gap-2">
           <Metric label="Altitude" value={`${telemetry.alt.toFixed(1)} m`} />
@@ -51,6 +52,6 @@ export function StatusPanel({
       ) : (
         <p className="text-sm text-slate-400">Waiting for the first frame…</p>
       )}
-    </section>
+    </Panel>
   );
 }

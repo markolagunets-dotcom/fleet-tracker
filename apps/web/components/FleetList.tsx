@@ -2,6 +2,7 @@
 
 import type { DroneCommand, DroneSummary } from '@fleet-tracker/shared';
 import { useDroneCommand } from '@/hooks/useQueries';
+import { Panel } from './Panel';
 
 const COMMANDS: DroneCommand[] = ['PAUSE', 'RESUME', 'RTB', 'RESET'];
 
@@ -17,9 +18,14 @@ export function FleetList({
   const command = useDroneCommand();
 
   return (
-    <section className="rounded-lg border border-slate-800 bg-slate-900/60 p-4">
-      <h2 className="mb-3 text-sm font-semibold text-slate-200">Fleet</h2>
-
+    <Panel
+      title="Fleet"
+      header={
+        <span className="rounded-full bg-slate-800 px-2 py-0.5 font-mono text-[11px] text-slate-400">
+          {drones.length}
+        </span>
+      }
+    >
       <ul className="space-y-2">
         {drones.map((drone) => (
           <li key={drone.droneId}>
@@ -62,6 +68,6 @@ export function FleetList({
       {command.isError && (
         <p className="mt-2 text-xs text-rose-400">Command failed — is the server running?</p>
       )}
-    </section>
+    </Panel>
   );
 }
