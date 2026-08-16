@@ -217,7 +217,11 @@ production builds run `next build --turbopack`.
 ### Rendering strategy
 
 The map is driven imperatively. The `L.Map`, per-drone `L.Marker` and `L.Polyline`
-instances live in refs; each tick calls `marker.setLatLng()` and
+instances live in refs; the map uses the canvas renderer, because an SVG path of
+2000 points is re-serialised on every update. Marker icons are built once and rotated
+by writing `style.transform` on the cached SVG element — `setIcon()` rebuilds the
+marker's DOM node, which at 5 Hz across three drones meant fifteen element
+replacements a second. Each tick calls `marker.setLatLng()` and
 `polyline.addLatLng()`. React does not re-render on telemetry.
 
 React Query owns everything that is *not* the hot path: missions, initial track
@@ -252,8 +256,15 @@ client that was away does not draw a gap as a straight line across the map.
 
 ## 6. Error handling and limits
 
-- Malformed frames are logged and dropped; the socket stays open.
-- Tracks are capped at `TRACK_POINT_LIMIT` (2000 points) on both ends. An unbounded
+- Inbound frames go through `parseServerMessage()` from the shared package, which
+  validates structure rather than casting. Anything that fails — bad JSON, an unknown
+  type, a renamed or missing field, an unrecognised status — is logged and dropped
+  while the socket stays open.
+- Tracks are capped on both ends, trimmed back to `TRACK_POINT_LIMIT` (2000 points)
+  once they exceed it by `TRACK_TRIM_BLOCK` (200). Dropping a single point per tick
+  reallocates the whole array five times a second per drone; trimming in blocks
+  amortises that, at the cost of a 2200-point ceiling rather than a hard 2000. An
+  unbounded
   polyline degrades the map and the browser.
 - If the API is unreachable at load, the map still renders with the mission overlay
   missing and an error banner, rather than a blank page.
@@ -310,7 +321,12 @@ npm workspaces with `concurrently`: `npm run dev` at the root starts both apps.
   "Design decisions" section covering the REST/WebSocket split, raw Leaflet over
   react-leaflet, native `ws` over Socket.IO, and the React Query hot-path boundary.
 - **CI** (GitHub Actions): lint, `tsc --noEmit`, tests, and build on every push.
-- **Docker**: a multi-stage Dockerfile per app and a `docker-compose.yml` that brings
+- **Docker**: a multi-stage Dockerfile per app. The server image separates `builder`,
+  a one-shot `migrate` stage that holds the Prisma CLI, `prod-deps`, and a `runner`
+  that carries neither the CLI nor devDependencies — `@prisma/client` declares both
+  the CLI and TypeScript as `peerOptional`, so a plain `--omit=dev` still ships them.
+  Dropping that tree took the runtime image from 737 MB to 434 MB. A
+  `docker-compose.yml` brings
   the whole stack up with one command.
 
 ### Deployment (deferred)

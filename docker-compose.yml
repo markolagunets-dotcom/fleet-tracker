@@ -27,6 +27,14 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+    healthcheck:
+      # `depends_on: service_started` only means the process launched; this waits
+      # until the API actually answers, so the UI never loads against a dead server.
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3001/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
 
   web:
     build:
@@ -38,7 +46,8 @@ services:
     ports:
       - '3000:3000'
     depends_on:
-      - server
+      server:
+        condition: service_healthy
 
 volumes:
   fleet-tracker-db:

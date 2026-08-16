@@ -10,10 +10,13 @@ export function FleetList({
   drones,
   selectedDroneId,
   onSelect,
+  isError = false,
 }: {
   drones: DroneSummary[];
   selectedDroneId: string;
   onSelect(droneId: string): void;
+  /** The roster query failed — an empty list here would read as "no drones". */
+  isError?: boolean;
 }): React.JSX.Element {
   const command = useDroneCommand();
 
@@ -22,16 +25,23 @@ export function FleetList({
       title="Fleet"
       header={
         <span className="rounded-full bg-slate-800 px-2 py-0.5 font-mono text-[11px] text-slate-400">
-          {drones.length}
+          {isError ? '—' : drones.length}
         </span>
       }
     >
+      {isError && (
+        <p className="mb-2 rounded-md bg-rose-500/10 p-2 text-xs text-rose-300">
+          Fleet roster unavailable — the drone list could not be loaded.
+        </p>
+      )}
+
       <ul className="space-y-2">
         {drones.map((drone) => (
           <li key={drone.droneId}>
             <button
               type="button"
               onClick={() => onSelect(drone.droneId)}
+              aria-pressed={drone.droneId === selectedDroneId}
               className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm ${
                 drone.droneId === selectedDroneId
                   ? 'bg-slate-700/70 text-slate-100'

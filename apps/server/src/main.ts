@@ -1,29 +1,18 @@
 import 'reflect-metadata';
-import { ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { WsAdapter } from '@nestjs/platform-ws';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { configureApp, setupSwagger } from './bootstrap';
+import type { EnvConfig } from './config/env.config';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
+  const config = app.get(ConfigService<EnvConfig, true>);
 
-  app.setGlobalPrefix('api');
-  app.enableCors({ origin: process.env.CORS_ORIGIN ?? 'http://localhost:3000' });
-  app.useWebSocketAdapter(new WsAdapter(app));
-  app.useGlobalPipes(
-    new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
-  );
+  configureApp(app, config.get('CORS_ORIGIN', { infer: true }));
+  setupSwagger(app);
 
-  const config = new DocumentBuilder()
-    .setTitle('FleetTracker API')
-    .setDescription('Drone fleet telemetry and flight log')
-    .setVersion('0.1.0')
-    .build();
-  SwaggerModule.setup('api/docs', app, SwaggerModule.createDocument(app, config));
-
-  const port = Number(process.env.PORT ?? 3001);
-  await app.listen(port);
+  await app.listen(config.get('PORT', { infer: true }));
 }
 
 void bootstrap();

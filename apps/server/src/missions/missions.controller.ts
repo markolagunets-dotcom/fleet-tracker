@@ -1,6 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import type { Mission } from '@fleet-tracker/shared';
-import { MISSIONS } from '@fleet-tracker/shared';
+import { MISSIONS } from './missions.data';
 import { ApiOkResponse, ApiTags } from '@nestjs/swagger';
 
 @ApiTags('missions')

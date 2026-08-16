@@ -1,22 +1,24 @@
 import { Module } from '@nestjs/common';
-import { DronesController } from './drones/drones.controller';
-import { FlightsController } from './flights/flights.controller';
-import { FlightsRepository } from './flights/flights.repository';
-import { HealthController } from './health/health.controller';
-import { MissionsController } from './missions/missions.controller';
-import { PrismaService } from './prisma/prisma.service';
-import { FleetService } from './simulation/fleet.service';
-import { TelemetryController } from './telemetry/telemetry.controller';
-import { TelemetryGateway } from './telemetry/telemetry.gateway';
+import { ConfigModule } from '@nestjs/config';
+import { validateEnv } from './config/env.config';
+import { DronesModule } from './drones/drones.module';
+import { FlightsModule } from './flights/flights.module';
+import { HealthModule } from './health/health.module';
+import { MissionsModule } from './missions/missions.module';
+import { PrismaModule } from './prisma/prisma.module';
+import { SimulationModule } from './simulation/simulation.module';
+import { TelemetryModule } from './telemetry/telemetry.module';
 
 @Module({
-  controllers: [
-    HealthController,
-    MissionsController,
-    DronesController,
-    TelemetryController,
-    FlightsController,
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true, cache: true, validate: validateEnv }),
+    PrismaModule,
+    FlightsModule,
+    SimulationModule,
+    TelemetryModule,
+    DronesModule,
+    MissionsModule,
+    HealthModule,
   ],
-  providers: [PrismaService, FlightsRepository, FleetService, TelemetryGateway],
 })
 export class AppModule {}

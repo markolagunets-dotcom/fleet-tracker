@@ -1,4 +1,4 @@
-import type { Mission } from './types';
+import type { Mission } from '@fleet-tracker/shared';
 
 export const MISSIONS: readonly Mission[] = [
   {

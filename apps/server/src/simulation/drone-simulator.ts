@@ -1,13 +1,5 @@
 import type { DroneStatus, LatLon, Mission, Telemetry } from '@fleet-tracker/shared';
-import {
-  ALT_MAX_M,
-  ALT_MIN_M,
-  ALT_PERIOD_MS,
-  BATTERY_DRAIN_PER_SECOND,
-  CRUISE_SPEED_MPS,
-  LOW_BATTERY_THRESHOLD,
-  WAYPOINT_RADIUS_M,
-} from '@fleet-tracker/shared';
+import { ALT_MAX_M, ALT_MIN_M, ALT_PERIOD_MS, BATTERY_DRAIN_PER_SECOND, CRUISE_SPEED_MPS, LOW_BATTERY_THRESHOLD, WAYPOINT_RADIUS_M } from './simulation.constants';
 import { bearingDeg, destination, distanceM } from './geo';
 
 const round = (value: number, decimals: number): number => {
@@ -21,6 +13,11 @@ const round = (value: number, decimals: number): number => {
  * Deliberately free of Nest, I/O and clock access: every time value arrives as a
  * parameter, which is what makes the flight model testable without fake timers.
  */
+export interface DroneSimulatorOptions {
+  /** Starting charge, 0..100. Lets a test reach RTB without ticking for an hour. */
+  battery?: number;
+}
+
 export class DroneSimulator {
   private position: LatLon;
   private status: DroneStatus = 'FLYING';
@@ -36,7 +33,9 @@ export class DroneSimulator {
   constructor(
     private readonly mission: Mission,
     readonly startedAt: number,
+    options: DroneSimulatorOptions = {},
   ) {
+    this.battery = options.battery ?? 100;
     this.position = { ...this.waypointAt(0) };
     this.heading = bearingDeg(this.position, this.waypointAt(1));
   }
@@ -75,11 +74,6 @@ export class DroneSimulator {
     if (this.status === 'FLYING') {
       this.status = 'RTB';
     }
-  }
-
-  /** Test seam: fast-forward the battery instead of ticking for twenty minutes. */
-  setBatteryForTest(value: number): void {
-    this.battery = value;
   }
 
   tick(dtMs: number, ts: number): Telemetry {

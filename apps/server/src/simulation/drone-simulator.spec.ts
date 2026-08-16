@@ -1,5 +1,5 @@
 import type { Mission, Telemetry } from '@fleet-tracker/shared';
-import { LOW_BATTERY_THRESHOLD, TICK_INTERVAL_MS } from '@fleet-tracker/shared';
+import { LOW_BATTERY_THRESHOLD, TICK_INTERVAL_MS } from './simulation.constants';
 import { DroneSimulator } from './drone-simulator';
 import { distanceM } from './geo';
 
@@ -77,15 +77,13 @@ describe('DroneSimulator', () => {
   });
 
   it('switches to RTB once the battery falls to the threshold', () => {
-    const sim = new DroneSimulator(LONG_MISSION, T0);
-    sim.setBatteryForTest(LOW_BATTERY_THRESHOLD + 0.01);
+    const sim = new DroneSimulator(LONG_MISSION, T0, { battery: LOW_BATTERY_THRESHOLD + 0.01 });
     const point = sim.tick(TICK_INTERVAL_MS, T0 + TICK_INTERVAL_MS);
     expect(point.status).toBe('RTB');
   });
 
   it('lands with zero speed once the battery is empty', () => {
-    const sim = new DroneSimulator(LONG_MISSION, T0);
-    sim.setBatteryForTest(0.01);
+    const sim = new DroneSimulator(LONG_MISSION, T0, { battery: 0.01 });
     const point = sim.tick(TICK_INTERVAL_MS, T0 + TICK_INTERVAL_MS);
     expect(point.status).toBe('LANDED');
     expect(point.battery).toBe(0);
