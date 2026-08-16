@@ -1,4 +1,4 @@
-import type { Mission } from '@fleet-tracker/shared';
+import type { Mission, Telemetry } from '@fleet-tracker/shared';
 import { LOW_BATTERY_THRESHOLD, TICK_INTERVAL_MS } from '@fleet-tracker/shared';
 import { DroneSimulator } from './drone-simulator';
 import { distanceM } from './geo';
@@ -27,7 +27,7 @@ const TIGHT_MISSION: Mission = {
 
 const T0 = 1_700_000_000_000;
 
-function tickTimes(sim: DroneSimulator, count: number) {
+function tickTimes(sim: DroneSimulator, count: number): Telemetry {
   let point = sim.snapshot(T0);
   for (let i = 1; i <= count; i += 1) {
     point = sim.tick(TICK_INTERVAL_MS, T0 + i * TICK_INTERVAL_MS);
