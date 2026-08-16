@@ -1,13 +1,26 @@
 import { BeforeApplicationShutdown, Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
+import {
+  OnGatewayConnection,
+  OnGatewayDisconnect,
+  WebSocketGateway,
+  WebSocketServer,
+} from '@nestjs/websockets';
 import type { ServerMessage } from '@fleet-tracker/shared';
+import {
+  PROTOCOL_MISMATCH_CODE,
+  PROTOCOL_VERSION,
+  PROTOCOL_VERSION_PARAM,
+} from '@fleet-tracker/shared';
+import type { IncomingMessage } from 'node:http';
 import type { Subscription } from 'rxjs';
 import { WebSocket, Server } from 'ws';
 import { FleetService } from '../simulation/fleet.service';
 
 @Injectable()
 @WebSocketGateway({ path: '/ws' })
-export class TelemetryGateway implements OnModuleInit, BeforeApplicationShutdown {
+export class TelemetryGateway
+  implements OnModuleInit, OnGatewayConnection, OnGatewayDisconnect, BeforeApplicationShutdown
+{
   private readonly logger = new Logger(TelemetryGateway.name);
   private subscription?: Subscription;
 
@@ -15,6 +28,37 @@ export class TelemetryGateway implements OnModuleInit, BeforeApplicationShutdown
   private readonly server!: Server;
 
   constructor(private readonly fleet: FleetService) {}
+
+  /**
+   * Rejects a client speaking a different wire format.
+   *
+   * Server and web ship as separate images, so a tab open across a release can be
+   * one version behind. Closing with 1008 makes that explicit instead of letting the
+   * client mis-render a payload it does not understand.
+   */
+  handleConnection(client: WebSocket, request: IncomingMessage): void {
+    const requested = new URL(request.url ?? '/', 'http://localhost').searchParams.get(
+      PROTOCOL_VERSION_PARAM,
+    );
+
+    if (requested !== null && Number(requested) !== PROTOCOL_VERSION) {
+      this.logger.warn(
+        `rejected client on protocol v${requested}, server speaks v${PROTOCOL_VERSION}`,
+      );
+      client.close(PROTOCOL_MISMATCH_CODE, `protocol v${PROTOCOL_VERSION} required`);
+      return;
+    }
+
+    this.logger.log(`client connected (${this.clientCount} total)`);
+  }
+
+  handleDisconnect(): void {
+    this.logger.log(`client disconnected (${this.clientCount} remaining)`);
+  }
+
+  private get clientCount(): number {
+    return this.server?.clients.size ?? 0;
+  }
 
   onModuleInit(): void {
     this.subscription = this.fleet.stream$.subscribe((message) => this.broadcast(message));

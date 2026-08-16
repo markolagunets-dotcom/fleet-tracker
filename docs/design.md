@@ -282,6 +282,22 @@ the WebSocket adapter, the domain exception filter, shutdown hooks. Production a
 both e2e suites call it, so a pipe added here is actually exercised by the tests
 instead of quietly diverging from what runs.
 
+## 5c. Protocol versioning and observability
+
+`PROTOCOL_VERSION` lives in the shared package and rides along on the WebSocket
+handshake as a query parameter. The gateway closes a mismatched client with 1008
+"policy violation" and the client stops reconnecting and offers a reload, because
+retrying would only be refused again. This matters because the two images are
+published and deployed independently: without it, a tab left open across a release
+silently mis-renders a payload whose shape it no longer understands.
+
+Logging is structured through pino — JSON in production so it can be indexed,
+pretty-printed in development. Every request line carries a request id, method, path,
+status and duration; 4xx logs at `warn` and 5xx at `error`. Health probes are excluded
+because they fire every few seconds and say nothing when they pass. The gateway logs
+connections, disconnections and the live client count, which is the one number that
+explains an unexpected broadcast cost.
+
 ## 6. Error handling and limits
 
 - Inbound frames go through `parseServerMessage()` from the shared package, which

@@ -102,6 +102,12 @@ maps to HTTP at the edge. Nothing in the core imports a database or a transport 
 Responsibilities are split accordingly: `TrackStore` buffers, `FlightArchiver`
 persists, `TelemetryScheduler` owns the interval, `FleetService` coordinates.
 
+**The wire format is versioned.** The server and the console ship as separate images,
+so a tab open across a release can be a version behind. The client sends
+`PROTOCOL_VERSION` on the handshake, the gateway refuses a mismatch with close code
+1008, and the console offers a reload instead of reconnecting into the same refusal.
+A silent mis-render is a far worse failure than an explicit one.
+
 **The simulation core is pure.** `geo.ts`, `drone-simulator.ts` and
 `flight-summary.ts` have no Nest, no I/O and no clock access — every time value is a
 parameter. That is what lets the flight model be tested with plain assertions and no

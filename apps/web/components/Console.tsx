@@ -99,6 +99,22 @@ export function Console(): React.JSX.Element {
         </label>
       </header>
 
+      {connection === 'outdated' && (
+        <div className="flex items-center justify-between gap-3 border-b border-violet-500/40 bg-violet-500/10 px-5 py-2 text-xs text-violet-200">
+          <span>
+            The server is running a newer version of the telemetry protocol. This tab is
+            out of date and will not receive updates.
+          </span>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="shrink-0 rounded bg-violet-500/20 px-3 py-1 font-medium hover:bg-violet-500/30"
+          >
+            Reload
+          </button>
+        </div>
+      )}
+
       <div className="flex min-h-0 flex-1">
         <div className="min-w-0 flex-1">
           <MapView

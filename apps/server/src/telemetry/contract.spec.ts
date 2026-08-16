@@ -1,5 +1,9 @@
 import type { ServerMessage } from '@fleet-tracker/shared';
-import { parseServerMessage } from '@fleet-tracker/shared';
+import {
+  parseServerMessage,
+  PROTOCOL_MISMATCH_CODE,
+  PROTOCOL_VERSION,
+} from '@fleet-tracker/shared';
 import { DroneSimulator } from '../simulation/drone-simulator';
 import { MISSIONS } from '../missions/missions.data';
 
@@ -48,5 +52,16 @@ describe('ServerMessage wire contract', () => {
   it('rejects a telemetry point with an unknown status', () => {
     const point = { ...simulator.tick(200, 1_700_000_000_600), status: 'HOVERING' };
     expect(parseServerMessage(JSON.stringify({ type: 'tick', points: [point] }))).toBeNull();
+  });
+});
+
+describe('protocol version', () => {
+  it('is a positive integer the client can send verbatim', () => {
+    expect(Number.isInteger(PROTOCOL_VERSION)).toBe(true);
+    expect(PROTOCOL_VERSION).toBeGreaterThan(0);
+  });
+
+  it('uses 1008 (policy violation) for a mismatch, not a generic error code', () => {
+    expect(PROTOCOL_MISMATCH_CODE).toBe(1008);
   });
 });

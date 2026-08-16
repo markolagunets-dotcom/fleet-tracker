@@ -1,7 +1,12 @@
 'use client';
 
 import type { Telemetry } from '@fleet-tracker/shared';
-import { parseServerMessage } from '@fleet-tracker/shared';
+import {
+  parseServerMessage,
+  PROTOCOL_MISMATCH_CODE,
+  PROTOCOL_VERSION,
+  PROTOCOL_VERSION_PARAM,
+} from '@fleet-tracker/shared';
 import {
   PANEL_INTERVAL_MS,
   WS_RECONNECT_MAX_MS,
@@ -12,7 +17,13 @@ import { useEffect, useRef, useState } from 'react';
 import { WS_URL } from '@/lib/config';
 import { queryKeys } from './useQueries';
 
-export type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'offline';
+export type ConnectionState =
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'offline'
+  /** The server speaks a different wire format — reconnecting cannot fix this. */
+  | 'outdated';
 
 /**
  * Subscribes to the telemetry socket.
@@ -42,7 +53,11 @@ export function useTelemetryStream(onPoints: (points: Telemetry[]) => void): Con
     let closedByUnmount = false;
 
     const connect = (): void => {
-      socket = new WebSocket(WS_URL);
+      // The handshake carries the wire version so the server can refuse a stale tab
+      // rather than let it mis-render a payload it does not understand.
+      const url = new URL(WS_URL);
+      url.searchParams.set(PROTOCOL_VERSION_PARAM, String(PROTOCOL_VERSION));
+      socket = new WebSocket(url);
 
       socket.onopen = () => {
         backoff = WS_RECONNECT_MIN_MS;
@@ -77,8 +92,16 @@ export function useTelemetryStream(onPoints: (points: Telemetry[]) => void): Con
         }
       };
 
-      socket.onclose = () => {
+      socket.onclose = (event: CloseEvent) => {
         if (closedByUnmount) {
+          return;
+        }
+
+        // Retrying would just be refused again; the page has to reload to pick up a
+        // bundle that speaks the server's version.
+        if (event.code === PROTOCOL_MISMATCH_CODE) {
+          console.warn('[fleet-tracker] protocol mismatch — reload required');
+          setConnection('outdated');
           return;
         }
         setConnection(backoff >= WS_RECONNECT_MAX_MS ? 'offline' : 'reconnecting');
