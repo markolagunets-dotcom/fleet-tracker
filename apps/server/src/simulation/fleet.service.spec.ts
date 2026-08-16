@@ -1,4 +1,9 @@
-import { MISSIONS, TICK_INTERVAL_MS } from '@fleet-tracker/shared';
+import {
+  MISSIONS,
+  TICK_INTERVAL_MS,
+  TRACK_POINT_LIMIT,
+  TRACK_TRIM_BLOCK,
+} from '@fleet-tracker/shared';
 import type { ServerMessage, Telemetry } from '@fleet-tracker/shared';
 import type { FlightSummaryInput } from './flight-summary';
 import { FleetService } from './fleet.service';
@@ -44,12 +49,23 @@ describe('FleetService', () => {
     expect(history['bravo']).toHaveLength(2);
   });
 
-  it('caps track history at the configured limit', () => {
+  it('caps track history, trimming in blocks rather than per tick', () => {
     const fleet = createFleet();
-    for (let i = 0; i < 2_050; i += 1) {
+    const ticks = TRACK_POINT_LIMIT + TRACK_TRIM_BLOCK + 50;
+    let peak = 0;
+
+    for (let i = 0; i < ticks; i += 1) {
       fleet.tickOnce();
+      peak = Math.max(peak, fleet.history()['alpha']!.length);
     }
-    expect(fleet.history()['alpha']!.length).toBeLessThanOrEqual(2_000);
+
+    const length = fleet.history()['alpha']!.length;
+    // Never grew past the hard ceiling...
+    expect(peak).toBeLessThanOrEqual(TRACK_POINT_LIMIT + TRACK_TRIM_BLOCK);
+    // ...a trim actually happened...
+    expect(length).toBeLessThan(ticks);
+    // ...and it dropped back to the cap rather than shaving one point per tick.
+    expect(length).toBeGreaterThanOrEqual(TRACK_POINT_LIMIT);
   });
 
   it('pauses and resumes a drone by command', () => {

@@ -1,7 +1,7 @@
 'use client';
 
 import type { FlightDetailDto, Mission, Telemetry, TrackHistory } from '@fleet-tracker/shared';
-import { TRACK_POINT_LIMIT } from '@fleet-tracker/shared';
+import { TRACK_POINT_LIMIT, TRACK_TRIM_BLOCK } from '@fleet-tracker/shared';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
@@ -23,20 +23,37 @@ interface MapViewProps {
 interface DroneLayers {
   marker: L.Marker;
   track: L.Polyline;
+  colour: string;
+  /** Cached so the per-frame path is one style write, with no DOM lookup. */
+  svg: SVGElement | null;
+  selected: boolean;
 }
 
 const KYIV: L.LatLngExpression = [50.45, 30.523];
 
-function arrowIcon(colour: string, heading: number, selected: boolean): L.DivIcon {
+
+/**
+ * Built once per drone and then mutated in place.
+ *
+ * `marker.setIcon()` tears down and rebuilds the marker's DOM element, so calling
+ * it per frame meant 15 element replacements a second. Rotation is a style write
+ * on the existing SVG instead.
+ */
+function arrowIcon(colour: string, selected: boolean): L.DivIcon {
   return L.divIcon({
     className: '',
     iconSize: [28, 28],
     iconAnchor: [14, 14],
-    html: `<svg width="28" height="28" viewBox="0 0 28 28" style="transform: rotate(${heading}deg)">
+    html: `<svg width="28" height="28" viewBox="0 0 28 28" style="will-change: transform">
              <circle cx="14" cy="14" r="12" fill="${colour}" fill-opacity="${selected ? 0.35 : 0.15}"/>
              <path d="M14 3 L21 24 L14 19 L7 24 Z" fill="${colour}" stroke="#0f172a" stroke-width="1"/>
            </svg>`,
   });
+}
+
+/** The <svg> inside a divIcon marker, cached so each frame is a single style write. */
+function iconSvg(marker: L.Marker): SVGElement | null {
+  return (marker.getElement()?.firstElementChild as SVGElement | null) ?? null;
 }
 
 export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(
@@ -53,15 +70,21 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(
   selectedRef.current = selectedDroneId;
   const followRef = useRef(follow);
   followRef.current = follow;
-  const missionsRef = useRef(missions);
-  missionsRef.current = missions;
 
   useEffect(() => {
     if (mapRef.current || !containerRef.current) {
       return;
     }
 
-    const map = L.map(containerRef.current, { center: KYIV, zoom: 12, zoomControl: true });
+    const map = L.map(containerRef.current, {
+      center: KYIV,
+      zoom: 12,
+      zoomControl: true,
+      // Tracks grow to TRACK_POINT_LIMIT points and change five times a second.
+      // The SVG renderer re-serialises the whole path on every update; canvas
+      // rasterises instead, which is far cheaper at this length and cadence.
+      preferCanvas: true,
+    });
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors',
       maxZoom: 19,
@@ -115,15 +138,32 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(
         continue;
       }
 
-      const track = L.polyline(latLngs, { color: mission.colour, weight: 3 }).addTo(map);
+      const selected = mission.droneId === selectedDroneId;
+      const track = L.polyline(latLngs, {
+        color: mission.colour,
+        weight: 3,
+        // Douglas-Peucker simplification at draw time; invisible at these scales.
+        smoothFactor: 2,
+      }).addTo(map);
       const marker = L.marker(
         last ? [last.lat, last.lon] : [mission.waypoints[0]!.lat, mission.waypoints[0]!.lon],
-        { icon: arrowIcon(mission.colour, last?.heading ?? 0, mission.droneId === selectedDroneId) },
+        { icon: arrowIcon(mission.colour, selected) },
       )
         .addTo(map)
         .on('click', () => onSelect(mission.droneId));
 
-      layersRef.current.set(mission.droneId, { marker, track });
+      const svg = iconSvg(marker);
+      if (svg && last) {
+        svg.style.transform = `rotate(${last.heading}deg)`;
+      }
+
+      layersRef.current.set(mission.droneId, {
+        marker,
+        track,
+        svg,
+        colour: mission.colour,
+        selected,
+      });
     }
   }, [history, missions, onSelect, selectedDroneId]);
 
@@ -142,23 +182,39 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(
             continue;
           }
 
+          const selected = point.droneId === selectedRef.current;
           const position: L.LatLngTuple = [point.lat, point.lon];
           layers.marker.setLatLng(position);
 
-          const colour =
-            missionsRef.current.find((mission) => mission.droneId === point.droneId)?.colour ??
-            '#94a3b8';
-          layers.marker.setIcon(
-            arrowIcon(colour, point.heading, point.droneId === selectedRef.current),
-          );
+          // One style write per frame instead of rebuilding the marker element.
+          if (!layers.svg) {
+            layers.svg = iconSvg(layers.marker);
+          }
+          if (layers.svg) {
+            layers.svg.style.transform = `rotate(${point.heading}deg)`;
+          }
+
+          // Selection changes on a click, not on a frame — rebuild the icon only then.
+          if (selected !== layers.selected) {
+            layers.selected = selected;
+            layers.marker.setIcon(arrowIcon(layers.colour, selected));
+            layers.svg = iconSvg(layers.marker);
+            if (layers.svg) {
+              layers.svg.style.transform = `rotate(${point.heading}deg)`;
+            }
+          }
 
           layers.track.addLatLng(position);
+
+          // Trim in blocks rather than one point per frame: dropping a single
+          // element from a 2000-entry array reallocates the whole thing, and at
+          // 5 Hz across the fleet that is the dominant cost once the cap is hit.
           const line = layers.track.getLatLngs() as L.LatLng[];
-          if (line.length > TRACK_POINT_LIMIT) {
+          if (line.length > TRACK_POINT_LIMIT + TRACK_TRIM_BLOCK) {
             layers.track.setLatLngs(line.slice(line.length - TRACK_POINT_LIMIT));
           }
 
-          if (followRef.current && point.droneId === selectedRef.current) {
+          if (followRef.current && selected) {
             map.panTo(position, { animate: false });
           }
         }

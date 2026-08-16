@@ -13,7 +13,13 @@ import type {
   Telemetry,
   TrackHistory,
 } from '@fleet-tracker/shared';
-import { MISSIONS, TICK_INTERVAL_MS, TRACK_POINT_LIMIT, findMission } from '@fleet-tracker/shared';
+import {
+  MISSIONS,
+  TICK_INTERVAL_MS,
+  TRACK_POINT_LIMIT,
+  TRACK_TRIM_BLOCK,
+  findMission,
+} from '@fleet-tracker/shared';
 import { Observable, Subject } from 'rxjs';
 import { FlightsRepository } from '../flights/flights.repository';
 import { DroneSimulator } from './drone-simulator';
@@ -135,7 +141,7 @@ export class FleetService implements OnModuleInit, OnModuleDestroy {
       return;
     }
     track.push(point);
-    if (track.length > TRACK_POINT_LIMIT) {
+    if (track.length > TRACK_POINT_LIMIT + TRACK_TRIM_BLOCK) {
       track.splice(0, track.length - TRACK_POINT_LIMIT);
     }
   }

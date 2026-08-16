@@ -1,8 +1,21 @@
 services:
+  # Runs to completion before the server starts, then exits. Keeps the Prisma CLI
+  # out of the image that serves traffic.
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+      target: migrate
+    environment:
+      DATABASE_URL: file:/data/fleet-tracker.db
+    volumes:
+      - fleet-tracker-db:/data
+
   server:
     build:
       context: .
       dockerfile: apps/server/Dockerfile
+      target: runner
     ports:
       - '3001:3001'
     environment:
@@ -11,6 +24,9 @@ services:
       DATABASE_URL: file:/data/fleet-tracker.db
     volumes:
       - fleet-tracker-db:/data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
 
   web:
     build:
