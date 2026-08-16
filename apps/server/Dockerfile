@@ -56,6 +56,9 @@ RUN rm -rf \
       node_modules/@prisma/get-platform
 
 # The generated client is produced by the CLI, which only exists in the builder.
+# `prisma-client-js` emits into node_modules/.prisma/client; @prisma/client is only
+# a re-export of it, so both have to come across or the runtime cannot resolve it.
+COPY --from=builder /repo/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /repo/node_modules/@prisma/client ./node_modules/@prisma/client
 
 # ── runner ────────────────────────────────────────────────────────────────────
