@@ -1,0 +1,38 @@
+version: 2
+
+updates:
+  # Covers every workspace: npm resolves apps/* and packages/* from the root manifest.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      # One PR per ecosystem rather than a dozen — patch noise is not worth the review time.
+      nest:
+        patterns: ['@nestjs/*', 'prisma', '@prisma/*']
+      next:
+        patterns: ['next', 'react', 'react-dom', '@types/react*', 'eslint-config-next']
+      tooling:
+        patterns: ['typescript', 'eslint', 'typescript-eslint', 'jest', 'ts-jest', '@types/*']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: ci
+
+  - package-ecosystem: docker
+    directories:
+      - /apps/server
+      - /apps/web
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore

@@ -1,0 +1,22 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      # Keeps a rolling "chore(release)" PR up to date from the conventional-commit
+      # history; merging it tags the version and writes CHANGELOG.md.
+      - uses: googleapis/release-please-action@v5
+        with:
+          release-type: node
+          package-name: fleet-tracker

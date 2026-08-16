@@ -4,17 +4,28 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch makes the in-flight run obsolete.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   verify:
+    name: Typecheck · Lint · Test · Build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       DATABASE_URL: file:./ci.db
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -25,6 +36,7 @@ jobs:
       - name: Build shared contract
         run: npm run build -w @fleet-tracker/shared
 
+      # Must run before typecheck: @prisma/client has no types until it is generated.
       - name: Generate Prisma client
         run: npx prisma generate
         working-directory: apps/server
@@ -39,11 +51,79 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # Both test steps continue on failure so the summary is always written;
+      # the verdict is enforced by the gate step below.
       - name: Unit tests
-        run: npm test
+        id: unit
+        continue-on-error: true
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/reports"
+          npm run test -w @fleet-tracker/server -- \
+            --ci \
+            --json --outputFile="$GITHUB_WORKSPACE/reports/unit.json" \
+            --coverage --coverageReporters=json-summary \
+            --coverageDirectory="$GITHUB_WORKSPACE/reports/coverage"
 
       - name: End-to-end tests
-        run: npm run test:e2e
+        id: e2e
+        continue-on-error: true
+        run: |
+          npm run test:e2e -w @fleet-tracker/server -- \
+            --ci \
+            --json --outputFile="$GITHUB_WORKSPACE/reports/e2e.json"
+
+      - name: Test summary
+        if: always()
+        run: |
+          node .github/scripts/test-summary.mjs \
+            reports/unit.json \
+            reports/e2e.json \
+            reports/coverage/coverage-summary.json
+
+      - name: Fail the job if any test failed
+        if: steps.unit.outcome == 'failure' || steps.e2e.outcome == 'failure'
+        run: |
+          echo "::error::Tests failed — see the job summary for the breakdown."
+          exit 1
 
       - name: Build
         run: npm run build
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports
+          path: reports/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  docker:
+    name: Docker images
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      # Built but never pushed: the point is to catch build-context mistakes —
+      # a file the image needs that only exists in the working tree.
+      - name: Build server image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: apps/server/Dockerfile
+          push: false
+          cache-from: type=gha,scope=server
+          cache-to: type=gha,mode=max,scope=server
+
+      - name: Build web image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          push: false
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web

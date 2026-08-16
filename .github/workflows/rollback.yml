@@ -1,0 +1,154 @@
+name: Rollback commit
+
+# Manual only. Reverting is a decision, never something a pipeline should take on
+# its own — the workflow just makes the mechanics safe and repeatable.
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: 'Commit SHA to revert (full or short)'
+        required: true
+        type: string
+      strategy:
+        description: 'How the revert should land'
+        required: true
+        type: choice
+        default: pull-request
+        options:
+          - pull-request
+          - direct-push
+      reason:
+        description: 'Why (added to the revert commit body)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  revert:
+    name: Revert a commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # Every dispatch input reaches the shell as an environment variable, never as a
+    # `${{ }}` expression inside `run:` — otherwise a crafted input would be executed
+    # as shell code by the runner.
+    env:
+      INPUT_COMMIT: ${{ inputs.commit }}
+      INPUT_REASON: ${{ inputs.reason }}
+      BASE_BRANCH: ${{ github.ref_name }}
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history: a revert needs the target commit and its parents.
+          fetch-depth: 0
+
+      - name: Identify as the workflow bot
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+      - name: Resolve and validate the commit
+        id: target
+        run: |
+          set -euo pipefail
+
+          if ! SHA=$(git rev-parse --verify --quiet "${INPUT_COMMIT}^{commit}"); then
+            echo "::error::'${INPUT_COMMIT}' is not a commit in this repository."
+            exit 1
+          fi
+
+          if ! git merge-base --is-ancestor "$SHA" HEAD; then
+            echo "::error::$SHA is not an ancestor of ${BASE_BRANCH} — nothing to revert here."
+            exit 1
+          fi
+
+          # A merge commit needs -m 1 to say which parent is the mainline.
+          if [ "$(git rev-list --parents -n 1 "$SHA" | wc -w)" -gt 2 ]; then
+            MAINLINE='-m 1'
+          else
+            MAINLINE=''
+          fi
+
+          {
+            echo "sha=$SHA"
+            echo "short=$(git rev-parse --short "$SHA")"
+            echo "mainline=$MAINLINE"
+          } >> "$GITHUB_OUTPUT"
+
+          # Subject may contain anything, so it goes to a file rather than an output.
+          git log -1 --format='%s' "$SHA" > /tmp/subject.txt
+          echo "Reverting $SHA — $(cat /tmp/subject.txt)"
+
+      - name: Create the revert commit
+        env:
+          SHA: ${{ steps.target.outputs.sha }}
+          MAINLINE: ${{ steps.target.outputs.mainline }}
+        run: |
+          set -euo pipefail
+
+          # shellcheck disable=SC2086 # MAINLINE is intentionally word-split ('' or '-m 1')
+          if ! git revert --no-edit $MAINLINE "$SHA"; then
+            git revert --abort || true
+            echo "::error::Revert conflicts with later changes. Resolve it by hand: git revert $SHA"
+            exit 1
+          fi
+
+          if [ -n "${INPUT_REASON}" ]; then
+            printf '%s\n\n%s\n' "$(git log -1 --format='%s')" "${INPUT_REASON}" > /tmp/msg.txt
+            git commit --amend --no-edit --file=/tmp/msg.txt
+          fi
+
+      - name: Open a pull request
+        if: inputs.strategy == 'pull-request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHORT: ${{ steps.target.outputs.short }}
+          RUN_ID: ${{ github.run_id }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          BRANCH="revert/${SHORT}-${RUN_ID}"
+          SUBJECT=$(cat /tmp/subject.txt)
+
+          git switch -c "$BRANCH"
+          git push origin "$BRANCH"
+
+          {
+            printf 'Reverts `%s` — %s\n\n' "$SHORT" "$SUBJECT"
+            printf 'Requested by @%s.\n' "$ACTOR"
+            [ -n "${INPUT_REASON}" ] && printf '\nReason: %s\n' "${INPUT_REASON}"
+            printf '\nCI must pass before this merges.\n'
+          } > /tmp/body.md
+
+          gh pr create \
+            --base "$BASE_BRANCH" \
+            --head "$BRANCH" \
+            --title "revert: $SUBJECT" \
+            --body-file /tmp/body.md
+
+      - name: Push the revert directly
+        if: inputs.strategy == 'direct-push'
+        run: git push origin "HEAD:${BASE_BRANCH}"
+
+      - name: Summary
+        if: always()
+        env:
+          SHORT: ${{ steps.target.outputs.short }}
+          STRATEGY: ${{ inputs.strategy }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          SUBJECT=$(cat /tmp/subject.txt 2>/dev/null || echo 'unresolved')
+          {
+            echo "## Rollback"
+            echo ""
+            echo "| | |"
+            echo "| :-- | :-- |"
+            echo "| Commit | \`${SHORT:-unresolved}\` |"
+            echo "| Subject | ${SUBJECT} |"
+            echo "| Strategy | ${STRATEGY} |"
+            echo "| Requested by | @${ACTOR} |"
+          } >> "$GITHUB_STEP_SUMMARY"
