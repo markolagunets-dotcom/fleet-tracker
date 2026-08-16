@@ -13,7 +13,7 @@
     "typecheck": "npm run typecheck -w @fleet-tracker/shared && npm run typecheck -w @fleet-tracker/server && npm run typecheck -w @fleet-tracker/web"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2",
+    "concurrently": "^10.0.4",
     "typescript": "^5.9.3"
   }
 }
