@@ -1,0 +1,17 @@
+@import 'tailwindcss';
+
+html,
+body {
+  height: 100%;
+}
+
+/* Leaflet paints its own light chrome; align it with the dark console. */
+.leaflet-container {
+  background: #0f172a;
+}
+
+.leaflet-bar a,
+.leaflet-control-attribution {
+  background: #1e293b;
+  color: #cbd5f5;
+}

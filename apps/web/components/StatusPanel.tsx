@@ -1,0 +1,56 @@
+'use client';
+
+import type { Telemetry } from '@fleet-tracker/shared';
+import type { ConnectionState } from '@/hooks/useTelemetryStream';
+
+const CONNECTION_LABEL: Record<ConnectionState, { text: string; className: string }> = {
+  connecting: { text: 'connecting', className: 'bg-amber-500/20 text-amber-300' },
+  connected: { text: 'connected', className: 'bg-emerald-500/20 text-emerald-300' },
+  reconnecting: { text: 'reconnecting', className: 'bg-amber-500/20 text-amber-300' },
+  offline: { text: 'offline', className: 'bg-rose-500/20 text-rose-300' },
+};
+
+function Metric({ label, value }: { label: string; value: string }): React.JSX.Element {
+  return (
+    <div className="rounded-md bg-slate-800/60 px-3 py-2">
+      <div className="text-[11px] uppercase tracking-wide text-slate-400">{label}</div>
+      <div className="font-mono text-lg text-slate-100">{value}</div>
+    </div>
+  );
+}
+
+export function StatusPanel({
+  telemetry,
+  connection,
+  trackPoints,
+}: {
+  telemetry: Telemetry | undefined;
+  connection: ConnectionState;
+  trackPoints: number;
+}): React.JSX.Element {
+  const badge = CONNECTION_LABEL[connection];
+
+  return (
+    <section className="rounded-lg border border-slate-800 bg-slate-900/60 p-4">
+      <header className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-slate-200">Status</h2>
+        <span className={`rounded-full px-2 py-0.5 text-[11px] ${badge.className}`}>
+          {badge.text}
+        </span>
+      </header>
+
+      {telemetry ? (
+        <div className="grid grid-cols-2 gap-2">
+          <Metric label="Altitude" value={`${telemetry.alt.toFixed(1)} m`} />
+          <Metric label="Battery" value={`${telemetry.battery.toFixed(1)} %`} />
+          <Metric label="Speed" value={`${telemetry.speed.toFixed(1)} m/s`} />
+          <Metric label="Heading" value={`${telemetry.heading.toFixed(0)}°`} />
+          <Metric label="State" value={telemetry.status} />
+          <Metric label="Track" value={`${trackPoints} pts`} />
+        </div>
+      ) : (
+        <p className="text-sm text-slate-400">Waiting for the first frame…</p>
+      )}
+    </section>
+  );
+}
