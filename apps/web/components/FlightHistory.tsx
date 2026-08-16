@@ -1,6 +1,7 @@
 'use client';
 
 import type { FlightSummaryDto } from '@fleet-tracker/shared';
+import { Panel } from './Panel';
 
 export function FlightHistory({
   flights,
@@ -12,26 +13,33 @@ export function FlightHistory({
   onSelect(flightId: string | null): void;
 }): React.JSX.Element {
   return (
-    <section className="flex min-h-0 flex-1 flex-col rounded-lg border border-slate-800 bg-slate-900/60 p-4">
-      <header className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-200">Flight log</h2>
-        {selectedFlightId && (
-          <button
-            type="button"
-            onClick={() => onSelect(null)}
-            className="text-[11px] text-slate-400 hover:text-slate-200"
-          >
-            clear
-          </button>
-        )}
-      </header>
-
+    <Panel
+      title="Flight log"
+      header={
+        <div className="flex items-center gap-2">
+          {selectedFlightId && (
+            <button
+              type="button"
+              onClick={() => onSelect(null)}
+              className="text-[11px] text-slate-400 hover:text-slate-200"
+            >
+              clear
+            </button>
+          )}
+          <span className="rounded-full bg-slate-800 px-2 py-0.5 font-mono text-[11px] text-slate-400">
+            {flights.length}
+          </span>
+        </div>
+      }
+    >
       {flights.length === 0 ? (
         <p className="text-sm text-slate-400">
           No completed flights yet — one is recorded when a drone lands or is reset.
         </p>
       ) : (
-        <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto">
+        // A fixed cap rather than flex-1: this panel sits inside a scrolling column,
+        // where flex-1 has no definite height and collapses the list to a sliver.
+        <ul className="max-h-64 space-y-1 overflow-y-auto">
           {flights.map((flight) => (
             <li key={flight.id}>
               <button
@@ -57,6 +65,6 @@ export function FlightHistory({
           ))}
         </ul>
       )}
-    </section>
+    </Panel>
   );
 }
